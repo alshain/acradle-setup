@@ -63,7 +63,11 @@ script). Contents:
 * Stream table: `prod-apk`, `test-apk`, `screenshots`, docs — plus the rule:
   new channel → new stable stream name; PR/experiment builds never go to
   `prod-apk`.
-* First-push behavior: phone approval tap, code shown, valid 24 h.
+* First-push behavior: phone approval tap, code valid 24 h. **The agent MUST
+  relay the pairing code to the user verbatim** (in its user-visible output,
+  not buried in tool logs) — the code is how the user verifies on the phone
+  that the approval card they're tapping belongs to this agent's request and
+  not someone else's pairing attempt.
 * Compact manual-API fallback: the four raw curl calls (pair, poll,
   upload, signing-key) for cases the script doesn't cover.
 
