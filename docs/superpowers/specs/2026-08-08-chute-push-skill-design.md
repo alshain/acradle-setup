@@ -70,26 +70,56 @@ script). Contents:
 ## 5. `chute-push`
 
 ```
-chute-push --stream <name> <file> [--project NAME] [--version NAME] [--notes TEXT]
+chute-push --stream <name> <file> [--version NAME] [--notes TEXT]
 ```
 
 * `--stream` required — the agent chooses the channel deliberately; no default.
-* `--project` defaults to git `origin` basename (strip `.git`), else the
-  current directory name.
+* **No `--project` flag.** The project name is only needed to obtain a token,
+  so the script derives it lazily — only when no token exists yet (or a 401
+  forces re-pairing). A pushed artifact costs zero name lookups in the common
+  already-paired case.
+
+**Project name normalization (pairing path only).** Prison repos are named
+`alshains-prison/<upstream-owner>-<name>` (e.g. `alshain/abc` →
+`alshains-prison/alshain-abc`). The proposed project name is the upstream
+identity, not the prison name:
+
+1. **Fork-parent lookup (primary).** If `origin` is a GitHub repo, query
+   `GET /repos/{owner}/{repo}` with the token already in git's credential
+   store (`git credential fill`; the App token has metadata:read) and take
+   `parent.full_name`. Own repos (`parent.owner == alshain`) → bare name
+   (`abc`); third-party → `owner/name` (`jetbrains/intellij-community`).
+   Slashes are safe: chute project names are free-form display strings —
+   uploads are token-scoped, and phone routes address projects by numeric id.
+2. **String fallback** (seeded prisons have no fork parent; lookup may fail).
+   For `alshains-prison/<n>`: strip a leading `alshain-` → bare name;
+   otherwise split at the first hyphen → `owner/name`. Ambiguity for
+   hyphenated owners is accepted — the fork lookup is the primary path, and
+   the phone can rebind at approval time anyway.
+3. **Not a prison repo:** `owner == alshain` → bare name; other owner →
+   `owner/name`; no usable remote → directory basename.
+
+Constants `alshains-prison` (prison org) and `alshain` (self owner) are
+hardcoded next to `CHUTE_URL`, overridable via `$CHUTE_PRISON_ORG` /
+`$CHUTE_SELF_OWNER`.
 * `branch`/`commit` auto-derived from git (`--abbrev-ref HEAD`, `--short
   HEAD`), omitted silently outside a repo. `filename` = file basename.
 * `CHUTE_URL="${CHUTE_URL:-https://chute.vqrs.ch}"`.
 * Dependencies: bash, curl, git only. No `jq`; parse with grep/sed.
 
-**Token flow.** Token at `~/.config/chute/token` (chute spec convention),
-paired project name in sidecar `~/.config/chute/project`. Pairing is triggered
-by: no token, project mismatch, or 401 on upload. Pairing = `POST /v1/pair`
+**Token flow.** Token at `~/.config/chute/token` (chute spec convention);
+token presence is the entire client-side state. Pairing is triggered by: no
+token, or 401 on upload. Pairing = `POST /v1/pair`
 → print the 4-digit code loudly with the expiry → poll `GET /v1/pair/{code}`
 with the poll secret every 5 s → on 200, write token `chmod 600` and proceed
 with the upload. The poll secret is never echoed. Denied (403) → clear exit;
 expired (410) → "re-run to request a new code".
 
-**Upload.** `curl -T` (streams from disk), provenance as query params.
+**Upload.** `curl -T` to `PUT /v1/streams/{stream}/versions` — note the
+implemented API is token-scoped with no project in the path (it has evolved
+past chute's original design doc, which had `/v1/projects/{p}/...`); the
+signing-key route is likewise `GET /v1/signing-key`. Provenance as query
+params.
 201 → report version id, sha256, size. 200 → report "already exists
 (idempotent replay)" as success. Distinct actionable messages for 413 (over
 the 512 MB cap), connection failure, and non-JSON responses.
@@ -99,7 +129,7 @@ the 512 MB cap), connection failure, and non-JSON responses.
 | Condition | Behavior |
 | --- | --- |
 | Missing/unreadable file | Immediate error before any network call |
-| No token / mismatch / 401 | Pair, then retry upload once |
+| No token / 401 | Derive project name, pair, then retry upload once |
 | Pairing denied | Exit nonzero: "denied on phone" |
 | Pairing expired | Exit nonzero: "re-run for a new code" |
 | 413 | Exit nonzero: file exceeds server cap |
