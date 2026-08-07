@@ -63,7 +63,7 @@ script). Contents:
 * Stream table: `prod-apk`, `test-apk`, `screenshots`, docs — plus the rule:
   new channel → new stable stream name; PR/experiment builds never go to
   `prod-apk`.
-* First-push behavior: phone approval tap, code shown, up to 10 minutes.
+* First-push behavior: phone approval tap, code shown, valid 24 h.
 * Compact manual-API fallback: the four raw curl calls (pair, poll,
   upload, signing-key) for cases the script doesn't cover.
 
@@ -109,17 +109,27 @@ hardcoded next to `CHUTE_URL`, overridable via `$CHUTE_PRISON_ORG` /
 
 **Token flow.** Token at `~/.config/chute/token` (chute spec convention);
 token presence is the entire client-side state. Pairing is triggered by: no
-token, or 401 on upload. Pairing = `POST /v1/pair`
-→ print the 4-digit code loudly with the expiry → poll `GET /v1/pair/{code}`
-with the poll secret every 5 s → on 200, write token `chmod 600` and proceed
-with the upload. The poll secret is never echoed. Denied (403) → clear exit;
-expired (410) → "re-run to request a new code".
+token, or 401 on upload. Pairing = `POST /v1/pair {proposed_name}` → print
+the 4-digit code loudly with the expiry (24 h) → poll `GET /v1/pair/{code}`
+with the poll secret at ≥ 10 s intervals, backing off on 429 (shared pairing
+IP bucket) → on 200, write token `chmod 600` and proceed with the upload.
+The poll secret is never echoed. Denied (403) → clear exit; expired (410) →
+"re-run to request a new code".
 
-**Upload.** `curl -T` to `PUT /v1/streams/{stream}/versions` — note the
-implemented API is token-scoped with no project in the path (it has evolved
-past chute's original design doc, which had `/v1/projects/{p}/...`); the
-signing-key route is likewise `GET /v1/signing-key`. Provenance as query
-params.
+**Pending-pairing persistence.** Codes live 24 h, so a pairing outlasts any
+single invocation. The script persists `{code, poll_secret}` to
+`~/.config/chute/pending-pairing` (`chmod 600`) when it creates one, bounds
+each invocation's wait (default 5 min, `--wait SECONDS` to override), and on
+timeout exits nonzero: "pairing still pending — approve on the phone, then
+re-run". A later invocation finds the file and resumes polling the same code
+instead of minting a new one (no duplicate approval cards on the phone). The
+file is deleted on collection (200), denial (403), or expiry (410).
+
+**Upload.** `curl -T` to `PUT /v1/streams/{stream}/versions` — token-scoped,
+no project in the path. The authoritative API contract is chute's
+`docs/superpowers/specs/2026-08-07-chute-api-changes.md` (frozen; it
+supersedes the routes in the 2026-08-06 design doc and names this agent
+skill as one of its three downstream tracks). Provenance as query params.
 201 → report version id, sha256, size. 200 → report "already exists
 (idempotent replay)" as success. Distinct actionable messages for 413 (over
 the 512 MB cap), connection failure, and non-JSON responses.
