@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+# chute-push — send an artifact to the user's phone via chute.
+#
+#   chute-push --stream <name> [--version NAME] [--notes TEXT] [--wait SECONDS] <file>
+#
+# Pairs on first use (phone approval; code printed loudly and persisted so a
+# re-run resumes the same code). Token: ~/.config/chute/token. Exit codes:
+# 0 success, 2 usage, 1 anything else.
+set -euo pipefail
+
+CHUTE_URL="${CHUTE_URL:-https://chute.vqrs.ch}"
+CHUTE_PRISON_ORG="${CHUTE_PRISON_ORG:-alshains-prison}"
+CHUTE_SELF_OWNER="${CHUTE_SELF_OWNER:-alshain}"
+CONFIG_DIR="${HOME}/.config/chute"
+TOKEN_FILE="${CONFIG_DIR}/token"
+PENDING_FILE="${CONFIG_DIR}/pending-pairing"
+POLL_INTERVAL=10
+
+STREAM="" VERSION="" NOTES="" FILE="" WAIT=300
+
+die() { echo "chute-push: $*" >&2; exit 1; }
+
+usage() {
+  echo "usage: chute-push --stream <name> [--version NAME] [--notes TEXT] [--wait SECONDS] <file>" >&2
+  exit 2
+}
+
+need_val() { [ "$#" -ge 2 ] || die "flag $1 needs a value"; }
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --stream)  need_val "$@"; STREAM="$2";  shift 2 ;;
+    --version) need_val "$@"; VERSION="$2"; shift 2 ;;
+    --notes)   need_val "$@"; NOTES="$2";   shift 2 ;;
+    --wait)    need_val "$@"; WAIT="$2";    shift 2 ;;
+    -h|--help) usage ;;
+    -*)        die "unknown flag: $1" ;;
+    *)         [ -z "$FILE" ] || usage; FILE="$1"; shift ;;
+  esac
+done
+
+[ -n "$STREAM" ] || usage
+[ -n "$FILE" ] || usage
+[ -r "$FILE" ] || die "cannot read file: $FILE"
+
+TMP="$(mktemp)"
+trap 'rm -f "$TMP"' EXIT
+
+# Percent-encode a string byte-wise (LC_ALL=C makes ${s:i:1} a byte, so
+# UTF-8 comes out as %XX%XX... — required for query parameters like notes).
+urlencode() {
+  local LC_ALL=C s="$1" out="" c i
+  for ((i = 0; i < ${#s}; i++)); do
+    c="${s:i:1}"
+    case "$c" in
+      [a-zA-Z0-9.~_-]) out+="$c" ;;
+      *) out+="$(printf '%%%02X' "'$c")" ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+json_escape() { local s="$1"; s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; printf '%s' "$s"; }
+
+# First string value for a key in compact Go-marshaled JSON: "key":"value".
+json_field() {
+  printf '%s' "$1" | grep -o "\"$2\":\"[^\"]*\"" | head -n1 | sed 's/^"[^"]*":"//; s/"$//'
+}
+
+# GitHub fork-parent lookup using the credential already in git's store.
+# Prints "owner/name" of the parent, or nothing (rc 1) when unavailable.
+fork_parent() {
+  local cred pass resp
+  cred="$(printf 'protocol=https\nhost=github.com\n\n' \
+    | GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true git credential fill 2>/dev/null)" || return 1
+  pass="$(printf '%s\n' "$cred" | sed -n 's/^password=//p' | head -n1)"
+  [ -n "$pass" ] || return 1
+  resp="$(curl -fsS --max-time 10 -H "Authorization: Bearer $pass" \
+    "https://api.github.com/repos/$1/$2")" || return 1
+  # parent's full_name precedes any nested object inside "parent":{...}
+  printf '%s' "$resp" \
+    | grep -o '"parent":{[^{]*"full_name":"[^"]*"' \
+    | grep -o '"full_name":"[^"]*"' | head -n1 \
+    | sed 's/^"full_name":"//; s/"$//'
+}
+
+# Proposed project name (pairing only — spec: lazy, zero lookups when a
+# token already exists). Prison repos normalize to their upstream identity.
+derive_project() {
+  local url path owner name parent
+  url="$(git remote get-url origin 2>/dev/null || true)"
+  if [ -z "$url" ]; then basename "$PWD"; return; fi
+  path="${url%.git}"
+  case "$path" in
+    git@*:*)    path="${path#*:}" ;;
+    ssh://*)    path="${path#ssh://}"; path="${path#*/}" ;;
+    http://*|https://*) path="${path#*://}"; path="${path#*/}" ;;
+  esac
+  owner="${path%%/*}"; name="${path#*/}"
+  if [ -z "$owner" ] || [ -z "$name" ] || [ "$owner" = "$path" ]; then
+    basename "$PWD"; return
+  fi
+  if [ "$owner" = "$CHUTE_PRISON_ORG" ]; then
+    parent="$(fork_parent "$owner" "$name" || true)"
+    if [ -n "$parent" ]; then
+      owner="${parent%%/*}"; name="${parent#*/}"
+    else
+      # Seeded prisons aren't forks; fall back to name parsing.
+      case "$name" in
+        "$CHUTE_SELF_OWNER"-*) printf '%s\n' "${name#"$CHUTE_SELF_OWNER"-}"; return ;;
+        *-*)                   printf '%s/%s\n' "${name%%-*}" "${name#*-}"; return ;;
+        *)                     printf '%s\n' "$name"; return ;;
+      esac
+    fi
+  fi
+  if [ "$owner" = "$CHUTE_SELF_OWNER" ]; then
+    printf '%s\n' "$name"
+  else
+    printf '%s/%s\n' "$owner" "$name"
+  fi
+}
+
+pair() {
+  local code secret resp http project waited tok
+  mkdir -p "$CONFIG_DIR"; chmod 700 "$CONFIG_DIR"
+  if [ -s "$PENDING_FILE" ]; then
+    code="$(sed -n '1p' "$PENDING_FILE")"
+    secret="$(sed -n '2p' "$PENDING_FILE")"
+    echo "chute-push: resuming pending pairing"
+  else
+    project="$(derive_project)"
+    echo "chute-push: requesting pairing for project '$project'"
+    http="$(curl -sS --max-time 15 -o "$TMP" -w '%{http_code}' \
+      -X POST -H 'Content-Type: application/json' \
+      -d "{\"proposed_name\":\"$(json_escape "$project")\"}" \
+      "$CHUTE_URL/v1/pair")" || die "cannot reach chute at $CHUTE_URL"
+    [ "$http" = "201" ] || die "pairing request failed (HTTP $http): $(cat "$TMP")"
+    resp="$(cat "$TMP")"
+    code="$(json_field "$resp" code)"
+    secret="$(json_field "$resp" poll_secret)"
+    { [ -n "$code" ] && [ -n "$secret" ]; } || die "unexpected pairing response"
+    ( umask 077; printf '%s\n%s\n' "$code" "$secret" > "$PENDING_FILE" )
+  fi
+
+  echo ""
+  echo "==================================================================="
+  echo "  PAIRING CODE: $code   (valid 24h)"
+  echo "  Approve on the phone — only tap the card showing THIS code."
+  echo "  AGENT: relay this code to the user in your reply, verbatim."
+  echo "==================================================================="
+  echo ""
+
+  waited=0
+  while [ "$waited" -lt "$WAIT" ]; do
+    http="$(curl -sS --max-time 15 -o "$TMP" -w '%{http_code}' \
+      -H "X-Chute-Poll-Secret: $secret" "$CHUTE_URL/v1/pair/$code")" || http=000
+    case "$http" in
+      200)
+        tok="$(json_field "$(cat "$TMP")" token)"
+        [ -n "$tok" ] || die "approved but no token in response"
+        ( umask 077; printf '%s\n' "$tok" > "$TOKEN_FILE" )
+        rm -f "$PENDING_FILE"
+        echo "chute-push: paired."
+        return 0 ;;
+      202) : ;;
+      401) die "poll secret rejected — remove $PENDING_FILE and re-run" ;;
+      403) rm -f "$PENDING_FILE"; die "pairing denied on the phone" ;;
+      404|410) rm -f "$PENDING_FILE"; die "pairing expired or already used — re-run to request a new code" ;;
+      429) sleep 20; waited=$((waited + 20)) ;;
+      000) : ;;
+      *) die "unexpected response while polling (HTTP $http): $(cat "$TMP")" ;;
+    esac
+    sleep "$POLL_INTERVAL"; waited=$((waited + POLL_INTERVAL))
+  done
+  die "pairing still pending after ${WAIT}s — approve on the phone, then re-run (same code resumes)"
+}
+
+# Uploads $FILE. Returns 0 on success, 41 on auth rejection (caller
+# re-pairs once); dies on every other failure.
+upload() {
+  local token qs http branch commit
+  token="$(cat "$TOKEN_FILE")"
+  qs="filename=$(urlencode "$(basename "$FILE")")"
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  commit="$(git rev-parse --short HEAD 2>/dev/null || true)"
+  if [ -n "$branch" ]; then qs="${qs}&branch=$(urlencode "$branch")"; fi
+  if [ -n "$commit" ]; then qs="${qs}&commit=$(urlencode "$commit")"; fi
+  if [ -n "$VERSION" ]; then qs="${qs}&version=$(urlencode "$VERSION")"; fi
+  if [ -n "$NOTES" ]; then qs="${qs}&notes=$(urlencode "$NOTES")"; fi
+  http="$(curl -sS -o "$TMP" -w '%{http_code}' \
+    -T "$FILE" -H "Authorization: Bearer $token" \
+    "$CHUTE_URL/v1/streams/$(urlencode "$STREAM")/versions?$qs")" \
+    || die "upload failed: cannot reach $CHUTE_URL"
+  case "$http" in
+    201) echo "chute-push: uploaded '$(basename "$FILE")' to stream '$STREAM': $(cat "$TMP")" ;;
+    200) echo "chute-push: already on the server (idempotent replay): $(cat "$TMP")" ;;
+    401) return 41 ;;
+    413) die "file exceeds the server's upload cap" ;;
+    *)   die "upload failed (HTTP $http): $(cat "$TMP")" ;;
+  esac
+}
+
+[ -s "$TOKEN_FILE" ] || pair
+
+rc=0
+upload || rc=$?
+if [ "$rc" = "41" ]; then
+  echo "chute-push: token rejected (revoked or stale) — re-pairing"
+  rm -f "$TOKEN_FILE"
+  pair
+  upload
+elif [ "$rc" != "0" ]; then
+  exit "$rc"
+fi
