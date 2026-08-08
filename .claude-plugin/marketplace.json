@@ -1,0 +1,20 @@
+{
+  "name": "acradle-setup",
+  "owner": {
+    "name": "Christian Vonrüti",
+    "email": "christian.vonrueti@gmail.com"
+  },
+  "metadata": {
+    "description": "Deliverables installed into acradle's disposable VMs",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "acradle-vm",
+      "source": "./plugins/acradle-vm",
+      "description": "Skills for Claude Code agents working inside acradle's disposable VMs: survival conventions and the chute asset-to-phone pipeline",
+      "version": "0.1.0",
+      "strict": true
+    }
+  ]
+}
