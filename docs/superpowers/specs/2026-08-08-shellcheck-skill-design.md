@@ -73,6 +73,13 @@ Hard gate: the plugin does not land in VM images until all of this runs.
    unprompted (RED expected: no)? Then with the skill installed: gate
    honored, install step lands in setup-vm.sh, directives used only with
    reasons. Capture rationalizations verbatim; replace §4.4's table.
+   *2026-08-08: the RED half ran host-side — two no-skill baselines (new
+   script under time pressure; --dry-run edit to a hazard-laden script).
+   Both skipped shellcheck: one offered functional runs as sufficiency
+   ("exercised end-to-end with observed output"), one offered `bash -n`
+   and left known word-splitting hazards as "pre-existing / out of
+   scope". §4.4's table is built from these, no longer provisional.
+   GREEN and the pressure variants remain deferred.*
 3. **In-VM runbook** — section added to `docs/vm-testing.md`: ask the
    agent for a script with a deliberate quoting hazard; expect a
    shellcheck run before completion and the install recorded as a
