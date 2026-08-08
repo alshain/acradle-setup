@@ -14,7 +14,9 @@
 - Build output with `printf`, never a heredoc (bash 5.3+ heredoc hang, superpowers #571).
 - Escape exactly five characters: `\`, `"`, newline, CR, tab. SKILL.md must contain no other control characters.
 - Read failure degrades to a minimal hardcoded context; the hook always exits 0.
-- SKILL.md body (frontmatter excluded) ≤ 350 words, verified with `wc -w`.
+- SKILL.md body (frontmatter excluded) ≤ 500 words, verified with `wc -w`.
+  (Originally 350; the mandated content measures 453, so the gate was raised
+  in the spec — see its Token budget decision row.)
 - Testing beyond the checks below (pressure scenarios, micro-tests, in-VM subagent verification) is deferred by decision (spec §7) — do NOT do it in this plan.
 
 ---
@@ -224,13 +226,13 @@ commit, push first.
 - [ ] **Step 2: Word-count gate and control-character scan**
 
 ```bash
-# Body = everything after the closing '---' of frontmatter; must be <= 350 words
+# Body = everything after the closing '---' of frontmatter; must be <= 500 words
 awk 'c==2{print} /^---$/{c++}' plugins/acradle-vm/skills/working-in-disposable-vms/SKILL.md | wc -w
-# Expected: <= 350
+# Expected: <= 500
 grep -P '[\x00-\x08\x0b\x0c\x0e-\x1f]' plugins/acradle-vm/skills/working-in-disposable-vms/SKILL.md && echo "FORBIDDEN CONTROL CHARS" || echo "clean"
 # Expected: clean
 ```
-If over 350: trim connective prose, never a rule or table row.
+If over 500: trim connective prose, never a rule or table row.
 
 - [ ] **Step 3: Re-run Task 1 Step 2's non-fallback checks** — the real content must now flow through both events (look for "DISPOSABLE VM" preamble plus "Git is the only durable storage" in the JSON).
 
@@ -300,9 +302,14 @@ fi
 
 - [ ] **Step 2: Harness semantics test in a temp dir** (no sudo, no VM)
 
+The marker step must land in the steps section — i.e. BEFORE the trailing
+`--check` gate, per the template's own ordering contract. Appending at EOF
+puts it after the gate and falsifies the `--check` exit code.
+
 ```bash
-d="$(mktemp -d)" && cp plugins/acradle-vm/skills/working-in-disposable-vms/setup-vm-template.sh "$d/setup-vm.sh"
-printf '%s\n' 'step "marker" "[ -f '"$d"'/marker ]" "touch '"$d"'/marker"' >> "$d/setup-vm.sh"
+d="$(mktemp -d)" && head -n -3 plugins/acradle-vm/skills/working-in-disposable-vms/setup-vm-template.sh > "$d/setup-vm.sh"
+printf 'step "marker" "[ -f %s/marker ]" "touch %s/marker"\n' "$d" "$d" >> "$d/setup-vm.sh"
+printf 'if $CHECK && $MISSING; then\n  exit 1\nfi\n' >> "$d/setup-vm.sh"
 bash "$d/setup-vm.sh" --check; echo "check1=$?"     # Expected: "MISSING: marker", check1=1
 [ ! -f "$d/marker" ] && echo "check-did-not-mutate"  # Expected: check-did-not-mutate
 bash "$d/setup-vm.sh"                                # Expected: "apply:   marker"

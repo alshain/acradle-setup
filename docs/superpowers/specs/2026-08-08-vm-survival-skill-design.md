@@ -24,7 +24,7 @@ per-repo file is retired.
 | --- | --- |
 | Skill shape | Always-injected discipline skill + bundled `setup-vm.sh` template (approach C; pointer-only injection rejected — discipline content must precede the first action) |
 | Distribution | Second skill in plugin `acradle-vm` (see 2026-08-08-chute-push-skill-design.md); adds the plugin's first hook |
-| Token budget | SKILL.md body ≤ 350 words, gated by `wc -w` in §7. Above the doctrine's <200 target for always-loaded skills — accepted deliberately: six rules plus bulletproofing don't fit 200, and superpowers' own always-injected skill is larger. Compression lever: the setup-vm.sh contract lives in the template's header comments, not the skill body |
+| Token budget | SKILL.md body ≤ 500 words, gated by `wc -w` in §7. Above the doctrine's <200 target for always-loaded skills — accepted deliberately: six rules plus bulletproofing don't fit 200, and superpowers' own always-injected skill is larger. (Originally 350; implementation showed the mandated content is 453 words — rules + table alone are 332 — so 350 was unreachable without cutting review-driven substance. Raised, with headroom for the RED-phase table replacement.) Compression lever: the setup-vm.sh contract lives in the template's header comments, not the skill body |
 | AGENT-ENVIRONMENT.md | Retired. Prison repos delete their copy once the plugin is in the VM image. No stub left behind. `docs/vm-setup.md` and `CLAUDE.md` keep their roles. The file's fork-topology fact ("origin is the agent's own fork; pushing is always safe") is environment, not policy — it migrates to per-repo `CLAUDE.md` / acradle's provisioning docs, tracked in §8 |
 | Runtime narrowing | Acknowledged: the hook reaches Claude Code only. Claude Code is the only supported in-VM runtime; if that changes, the conventions need an AGENTS.md-style re-export |
 | Plugin dependency | The worktree rule hard-depends on superpowers being installed in the VM image (it is today — vm-setup.md lists v6.2.0, user scope). Stated prerequisite; without it the rule names a skill the agent can't invoke |
@@ -106,7 +106,7 @@ and you're about to run something risky." Search keywords (disposable,
 ephemeral, VM, prison, commit, push, worktree, setup-vm, provisioning,
 memory) live in the body, not the description.
 
-Body (≤ 350 words), in order:
+Body (≤ 500 words), in order:
 
 1. **The model, stated as stakes.** The VM can be deleted at any moment,
    without warning. Two consequences (kept nearly verbatim from
@@ -195,7 +195,7 @@ plugin does not land in VM images until all of this has run.**
    valid JSON out with the matching `hookEventName`, content intact, the
    five-character escape set exercised, SKILL.md scanned for forbidden
    control characters, read-failure fallback produces the minimal
-   context. Plus the budget gate: `wc -w` on SKILL.md body ≤ 350. In-VM:
+   context. Plus the budget gate: `wc -w` on SKILL.md body ≤ 500. In-VM:
    verify a spawned subagent's transcript actually contains the
    injection.
 2. **Wording micro-tests** — before full scenarios, per writing-skills:
