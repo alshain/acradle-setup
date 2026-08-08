@@ -134,9 +134,14 @@ Body (≤ 350 words), in order:
    `~/.claude/projects/*/memory/` (including `MEMORY.md`) dies with the
    VM. Durable notes → `docs/vm-setup.md` (what's installed and why),
    `CLAUDE.md` (project instructions).
-6. **Root only when forced.** `sudo` only when the artifact must live
-   outside `$HOME` or the tool has no user-scope install path — and the
-   sudo command goes in `setup-vm.sh` like everything else.
+6. **Persistence, not privilege, is what's regulated.** Root is available
+   and the machine is disposable — ephemeral root operations (`sudo
+   tcpdump`, `dmesg`, one-off diagnostics) need no ceremony; run them.
+   The rule keys on an observable predicate: if the command changes
+   machine state that outlives the session — installs, config edits,
+   daemons, whether or not it needed sudo — it goes in `setup-vm.sh`.
+   Within that, prefer user-scope installs (`$HOME`) where a tool offers
+   one: they reproduce without root and can't break the base image.
 7. **Bulletproofing.** Rationalization table — "I'll commit once it
    works" / "this VM has been up for days" / "pushing every commit is
    noisy" / "it's committed in my worktree" / "I'll remember what I
