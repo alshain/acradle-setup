@@ -1,6 +1,6 @@
 {
   "name": "acradle-vm",
-  "description": "Skills for Claude Code agents working inside acradle's disposable VMs: survival conventions and the chute asset-to-phone pipeline",
+  "description": "Skills for Claude Code agents working inside acradle's disposable VMs: survival conventions, the chute asset-to-phone pipeline, and a shellcheck gate for shell scripts",
   "version": "0.1.0",
   "author": {
     "name": "Christian Vonrüti",
@@ -11,6 +11,7 @@
     "disposable-vm",
     "chute",
     "artifacts",
-    "provisioning"
+    "provisioning",
+    "shellcheck"
   ]
 }
