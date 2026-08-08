@@ -56,8 +56,9 @@ At session start: if `scripts/setup-vm.sh` exists, run
 |---|---|
 | "I'll commit once it works" | The VM can die first. Commit the progress. |
 | "This VM has been up for days" | Uptime is not a promise. Deletion needs no warning. |
-| "Pushing every commit is noisy" | origin is a throwaway fork. Nobody is watching. |
+| "Nobody asked me to push" | Deletion doesn't ask either. origin is a throwaway fork — push. |
 | "It's committed in my worktree" | Unpushed = local = lost. Push the branch. |
+| "I left a note about the machine setup" | Prose can't be run. Make it a setup-vm.sh step. |
 | "I'll remember what I installed" | The next VM won't. Script it. |
 
 **Red flag:** uncommitted work + about to run something risky → stop,
