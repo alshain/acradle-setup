@@ -37,8 +37,8 @@ per-repo file is retired.
 plugins/acradle-vm/
   .claude-plugin/plugin.json
   hooks/
-    hooks.json                        # SessionStart, matcher "startup|clear|compact"
-    session-start                     # bash; emits SKILL.md as additionalContext
+    hooks.json                        # SessionStart (startup|clear|compact) + SubagentStart
+    inject-rules                      # bash; emits SKILL.md as additionalContext; takes event name as $1
   skills/
     pushing-artifacts-to-phone/       # previous spec
     working-in-disposable-vms/
@@ -48,11 +48,20 @@ plugins/acradle-vm/
 
 ## 4. Hook
 
-`hooks.json` registers SessionStart, matcher `startup|clear|compact`, with
-the command pinned as:
+`hooks.json` registers **two** events running the same script:
+
+* **SessionStart**, matcher `startup|clear|compact` — the main session.
+* **SubagentStart**, no matcher (all agent types) — SessionStart's
+  `additionalContext` does not reach subagents (per the hooks reference),
+  but SubagentStart supports `additionalContext` and it lands in the
+  subagent's transcript, and plugin hooks.json may register it. Subagent
+  coverage is therefore structural, not a prompt-forwarding convention.
+
+Command pinned as (event name passed as the argument, echoed back as
+`hookEventName` — the two events need different values there):
 
 ```json
-"command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start\""
+"command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/inject-rules\" SessionStart"
 ```
 
 (explicit `bash` prefix so the exec bit is irrelevant — this repo is
@@ -149,10 +158,9 @@ Body (≤ 350 words), in order:
    + about to run something risky → stop, push first. Table entries are
    **provisional until §7.2's baseline runs** capture real
    rationalizations verbatim; they will be replaced, not merely appended
-   to. Subagent note, following superpowers' `<SUBAGENT-STOP>` precedent:
-   when delegating, include the commit/push/script rules in the subagent
-   prompt (whether SessionStart injections reach subagents is verified in
-   §7, not assumed).
+   to. No subagent carve-out and no prompt-forwarding rule: subagents get
+   the same injection via the SubagentStart hook (§4) — these rules apply
+   to every agent that can touch the machine.
 
 ## 6. setup-vm-template.sh
 
@@ -183,11 +191,13 @@ home of these rules — the skill body just points here):
 Implementation proceeds first at the user's direction. **Hard gate: the
 plugin does not land in VM images until all of this has run.**
 
-1. **Hook test** — run session-start standalone: valid JSON out
-   (including `hookEventName`), content intact, the five-character escape
-   set exercised, SKILL.md scanned for forbidden control characters,
-   read-failure fallback produces the minimal context. Plus the budget
-   gate: `wc -w` on SKILL.md body ≤ 350.
+1. **Hook test** — run inject-rules standalone for both event arguments:
+   valid JSON out with the matching `hookEventName`, content intact, the
+   five-character escape set exercised, SKILL.md scanned for forbidden
+   control characters, read-failure fallback produces the minimal
+   context. Plus the budget gate: `wc -w` on SKILL.md body ≤ 350. In-VM:
+   verify a spawned subagent's transcript actually contains the
+   injection.
 2. **Wording micro-tests** — before full scenarios, per writing-skills:
    the worktree/commit/sudo conditionals against a no-guidance control,
    5+ reps, flagged matches read manually.
