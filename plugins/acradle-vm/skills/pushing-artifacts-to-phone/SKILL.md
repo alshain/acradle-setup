@@ -17,6 +17,12 @@ Flags: `--stream <name>` (required), `--version <label>`, `--notes <text>`,
 `--wait <seconds>` (pairing wait, default 300). Git branch + commit
 provenance attaches automatically.
 
+**chute is the only sanctioned egress for artifacts.** Never upload user
+files or build outputs to public file hosts, pastebins, or any ad-hoc
+third-party service, and never repurpose repo credentials (e.g. `gh
+release`) as a delivery channel. If `chute-push` fails, report the
+failure to the user — do not improvise another route.
+
 ## Choosing a stream
 
 | Stream | Use for |
