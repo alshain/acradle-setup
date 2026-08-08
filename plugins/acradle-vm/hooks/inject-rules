@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Emits the working-in-disposable-vms skill as hook additionalContext.
+# $1 = the firing hook event ("SessionStart" or "SubagentStart"); echoed
+# back as hookEventName, which must match the event that ran the hook.
+#
+# Always exits 0: a broken injection must degrade (fallback context below),
+# never block the session.
+set -uo pipefail
+
+EVENT="${1:-SessionStart}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SKILL_FILE="${SCRIPT_DIR}/../skills/working-in-disposable-vms/SKILL.md"
+
+content="$(cat "$SKILL_FILE" 2>/dev/null)" || content=""
+if [ -z "$content" ]; then
+  content="VM survival rules failed to load — treat this VM as deletable: commit and push after every change, and record machine changes in scripts/setup-vm.sh."
+fi
+
+# JSON-escape: exactly these five; SKILL.md is forbidden other control chars.
+escape_for_json() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+
+escaped="$(escape_for_json "$content")"
+context="<EXTREMELY_IMPORTANT>\nYou are working in a DISPOSABLE VM that can be deleted at any moment. The rules below govern every action you take:\n\n${escaped}\n</EXTREMELY_IMPORTANT>"
+
+# printf, not heredoc (bash 5.3+ heredoc hang — superpowers issue #571).
+# Exactly one output shape; hookEventName must match the firing event.
+printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$EVENT" "$context"
+exit 0
