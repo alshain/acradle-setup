@@ -3,7 +3,8 @@
 #
 #   CHUTED_BIN=/path/to/chuted ./tests/test-chute-push.sh
 #
-# Needs: bash, curl, git, node (JSON assertions), and a chuted binary
+# Needs: bash, curl, git, node (JSON assertions), python3 (the set
+# scenarios: chute-set.py and tests/make-raw-set.py), and a chuted binary
 # (CGO-free; `go build -o chuted ./cmd/chuted` in a chute checkout).
 # Starts its own server on 127.0.0.1:18080 with a throwaway data dir; no
 # phone, no network beyond loopback. Every step prints ok:; ends with
@@ -11,9 +12,13 @@
 set -euo pipefail
 
 [ -n "${CHUTED_BIN:-}" ] || { echo "set CHUTED_BIN to a chuted binary" >&2; exit 2; }
+command -v python3 >/dev/null || { echo "python3 is required (chute-set.py, make-raw-set.py)" >&2; exit 2; }
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PUSH="$ROOT/plugins/acradle-vm/skills/pushing-artifacts-to-phone/chute-push"
+SET_PY="$ROOT/plugins/acradle-vm/skills/pushing-artifacts-to-phone/chute-set.py"
+MAKE_RAW="$ROOT/tests/make-raw-set.py"
+CORPUS="$ROOT/tests/set-corpus"
 PORT=18080
 BASE="http://127.0.0.1:$PORT"
 
@@ -207,6 +212,65 @@ rc=0; wait "$BG" || rc=$?
 [ "$rc" = 1 ] && grep -q 'pairing denied on the phone' "$WORK/s9.out" || fail "denial handling: rc=$rc $(cat "$WORK/s9.out")"
 [ ! -f "$AGENT_HOME/.config/chute/pending-pairing" ] || fail "pending file survived denial"
 ok "denial is a clean failure"
+
+# Pairs the agent once for the set scenarios, unless a token is already held.
+ensure_paired() {  # ensure_paired <dir> <project-name>
+  [ -s "$AGENT_HOME/.config/chute/token" ] && return 0
+  mkdir -p "$1"; printf 'seed %s\n' "$2" > "$1/seed.txt"
+  run_push "$1" "$WORK/pair-$2.out" --stream docs seed.txt &
+  local bg=$!
+  wait_for_line "$WORK/pair-$2.out" 'PAIRING CODE:' 20 || { cat "$WORK/pair-$2.out"; fail "no banner pairing $2"; }
+  approve "$(code_from "$WORK/pair-$2.out")" "$2"
+  wait "$bg" || fail "pairing push for $2 failed: $(cat "$WORK/pair-$2.out")"
+}
+
+# ── 13. error-text parity: chuted vs chute-set.py check vs the corpus ────
+# Each corpus manifest is zipped UNVALIDATED (make-raw-set.py) and PUT with
+# the agent token. The server's 400 "error" (JSON body; X-Chute-Error-Detail
+# never reaches a client) must equal "set manifest is invalid: " + what
+# chute-set.py check prints, which must equal the hand-kept expected.tsv
+# column. A changed limit or string on either side turns this red.
+ensure_paired "$WORK/proj-sets" "proj-sets"
+AGENT_TOKEN="$(cat "$AGENT_HOME/.config/chute/token")"
+CONFORMED="$(sed -n 's/^CONFORMED_TO_CHUTE = "\([0-9a-f]*\)"$/\1/p' "$SET_PY")"
+[ -n "$CONFORMED" ] || fail "no CONFORMED_TO_CHUTE in chute-set.py"
+mkdir -p "$WORK/s13"
+n13=0
+while IFS=$'\t' read -r -u 3 f exp args; do  # fd 3: nothing in the body can eat the TSV
+  case "$f" in ''|'#'*) continue ;; esac
+  z="$WORK/s13/${f%.json}.zip"
+  # shellcheck disable=SC2086  # args is a word list of make-raw-set.py flags
+  python3 "$MAKE_RAW" --out "$z" --manifest "$CORPUS/$f" $args || fail "s13 $f: make-raw-set.py failed"
+  crc=0; got="$(python3 "$SET_PY" check "$z")" || crc=$?
+  http="$(curl -sS -o "$WORK/s13.body" -w '%{http_code}' -T "$z" \
+    -H "Authorization: Bearer $AGENT_TOKEN" \
+    "$BASE/v1/streams/corpus/versions?filename=${f%.json}.zip")"
+  body="$(cat "$WORK/s13.body")"
+  case "$exp" in
+    VALID|ACCEPT)
+      [ "$http" = 201 ] || fail "s13 $f: server should store it as a set, got $http $body"
+      [ "$(jget "$body" j.set_item_count)" -ge 1 ] || fail "s13 $f: stored as a plain artifact: $body"
+      if [ "$exp" = VALID ]; then
+        [ "$crc" = 0 ] && [ -z "$got" ] || fail "s13 $f: check rejects what the server accepts: rc=$crc $got"
+      else
+        [ "$crc" = 3 ] && case "$got" in producer-only:*) true ;; *) false ;; esac \
+          || fail "s13 $f: check should report producer-only: rc=$crc $got"
+      fi
+      ;;
+    *)
+      [ "$http" = 400 ] || fail "s13 $f: expected 400, got $http $body"
+      srv="$(jget "$body" j.error)" || fail "s13 $f: no error field: $body"
+      [ "$crc" = 3 ] || fail "s13 $f: check rc=$crc (want 3): $got"
+      [ "$srv" = "set manifest is invalid: $got" ] \
+        || fail "s13 $f: server and check disagree"$'\n'"  server: $srv"$'\n'"  check:  $got"
+      [ "$got" = "$exp" ] \
+        || fail "s13 $f: check disagrees with expected.tsv"$'\n'"  check:    $got"$'\n'"  expected: $exp"
+      ;;
+  esac
+  n13=$((n13 + 1))
+done 3< "$CORPUS/expected.tsv"
+[ "$n13" -ge 20 ] || fail "s13 ran only $n13 corpus rows"
+ok "error-text parity on $n13 corpus rows (CONFORMED_TO_CHUTE=$CONFORMED)"
 
 echo
 echo "chute-push harness passed"

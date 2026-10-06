@@ -1,0 +1,31 @@
+# s13 error-text parity corpus (tests/test-chute-push.sh).
+# Columns (TAB-separated): manifest file, expected server message, make-raw-set.py args.
+# Expected = the 400 body's "error" minus its "set manifest is invalid: " prefix, copied
+# from chute internal/set/set.go (Decode) and archive.go (Parse, readBounded) at chute
+# main 50322eaf44c39f2002dfdcb066a03c5b8200546f. Item indices are 0-based manifest positions.
+# VALID  = the server stores it as a set (201) and chute-set.py check prints nothing.
+# ACCEPT = the server stores it as a set (201) but check reports it "producer-only:"
+#          (mis-cased key: Go's decoder folds case, the phone's kotlinx decoder does not).
+# Hand-kept until chute publishes internal/set/testdata (spec, Changes needed in chute, 3).
+valid-control-char-title.json	VALID	--member a.png
+miscased-title.json	ACCEPT	--member a.png
+chute-set-2.json	chute_set must be 1	--member a.png
+unknown-field.json	manifest is not valid JSON for this format	--member a.png
+zero-items.json	a set needs at least one item	
+items-101.json	a set holds at most 100 items	
+id-charset.json	item 0: id must match [A-Za-z0-9._-]{1,64}	--member a.png
+id-65.json	item 1: id must match [A-Za-z0-9._-]{1,64}	--member a.png --member b.png
+duplicate-id.json	item 1: duplicate id	--member a.png --member b.png
+duplicate-path.json	item 1: duplicate path	--member a.png
+path-leading-slash.json	item 0: path must be a relative, forward-slashed archive member name	
+path-backslash.json	item 0: path must be a relative, forward-slashed archive member name	
+path-traverse.json	item 0: path must not traverse	
+blank-title.json	item 0: title is required	--member a.png
+title-121.json	item 0: title is longer than 120 characters	--member a.png
+description-2001.json	item 0: description is longer than 2000 characters	--member a.png
+blank-content-type.json	item 0: content_type is required	--member a.png
+missing-member.json	item 0: no archive member named "a.png"	
+missing-member-quoted.json	item 0: no archive member named "x\té\".png"	
+directory-member.json	item 0: "a" is not a regular file	--dir-member a
+duplicate-entry.json	archive has duplicate entry names	--member a.png --member a.png
+manifest-262144.json	manifest is larger than 262144 bytes	--member a.png --pad-to 262144
