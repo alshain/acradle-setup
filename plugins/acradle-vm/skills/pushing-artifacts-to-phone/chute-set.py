@@ -629,6 +629,10 @@ def load_items_tsv(path, directory, members):
             data = f.read()
     except OSError as e:
         raise Reject("--items %s: cannot read it (%s)" % (path, e.strerror or e))
+    # A leading UTF-8 byte-order mark (PowerShell 5.1's Out-File writes one)
+    # would otherwise become an invisible part of the first filename.
+    if data.startswith(b"\xef\xbb\xbf"):
+        data = data[3:]
     rows, seen = [], {}
     for n, raw in enumerate(data.split(b"\n"), 1):
         if raw.endswith(b"\r"):

@@ -236,6 +236,23 @@ class TestTsv(Base):
         self.assertEqual(items[1]["title"], "Title B")
         self.assertEqual(items[1]["description"], "")
 
+    def test_utf8_bom_is_ignored(self):
+        # PowerShell 5.1's Out-File -Encoding utf8 (what a host worktree
+        # session may use) writes a BOM; it is invisible in the "not a file"
+        # error, so a headless agent could not see why its row was refused.
+        self.put("a.png")
+        t = self.tsv(None, raw=b"\xef\xbb\xbfa.png\tTitle A\n")
+        self.build_ok("--items", t)
+        self.assertEqual(self.read_manifest()["items"][0]["title"], "Title A")
+
+    def test_bom_only_at_the_start_of_the_file(self):
+        self.put("a.png")
+        self.put("b.png")
+        t = self.tsv(None, raw=b"a.png\tA\n\xef\xbb\xbfb.png\tB\n")
+        rc, out, err = self.build("--items", t)
+        self.assertEqual(rc, 3)
+        self.assertIn("line 2", err)
+
     def test_empty_title_falls_back_to_basename(self):
         self.put("a.png")
         t = self.tsv("a.png\t\tonly a description\n")
