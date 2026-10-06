@@ -50,7 +50,7 @@ Checked against `50322ea`; these are the traps, each pinned by a test below.
 - Exit 0 / 3 (inputs rejected; nothing written) / 1 (I/O).
 - Stdout on build success: one line per item `  <file>  id=<id>  "<title>"` (+ ` (opaque on the phone: opens with another app)` for non-`image/*`), then `chute-set: N items, <bytes> bytes`.
 - Stderr on a rejected input: `chute-set: item N (<file>): <server wording>` or `chute-set: <file>: …`, optional second line `hint: …`.
-- `skipped (symlink|directory): <name>` lines on stderr (Task 3 re-prefixes nothing; chute-push lets them through).
+- `chute-set: skipped (symlink|directory): <name>` lines on stderr (Task 3 re-prefixes nothing; chute-push lets them through).
 - Module constant `CONFORMED_TO_CHUTE = "50322eaf44c39f2002dfdcb066a03c5b8200546f"` and `MANIFEST_KEYS`.
 
 - [x] **Step 1: Write the failing unit tests** in `tests/test-chute-set.py` (load the script by path with `importlib.util.spec_from_file_location`, since its dashed name is not importable and it lives outside a package; drive the CLI with `subprocess` + `sys.executable` for exit-code tests). One `TestCase` per spec "Unit" bullet:

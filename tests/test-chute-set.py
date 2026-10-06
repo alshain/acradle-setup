@@ -284,7 +284,8 @@ class TestMembers(Base):
         os.mkdir(os.path.join(self.dir, "sub"))
         out, err = self.build_ok()
         self.assertEqual([it["path"] for it in self.read_manifest()["items"]], ["a.png"])
-        self.assertIn("skipped (directory): sub", err)
+        # every diagnostic carries the program prefix, so an agent can grep for it
+        self.assertIn("chute-set: skipped (directory): sub", err)
         self.assertNotIn(".hidden.png", err)
 
     def test_symlinks_are_skipped(self):
@@ -294,7 +295,7 @@ class TestMembers(Base):
         os.symlink(os.path.join(self.dir, "a.png"), os.path.join(self.dir, "link.png"))
         out, err = self.build_ok()
         self.assertEqual([it["path"] for it in self.read_manifest()["items"]], ["a.png"])
-        self.assertIn("skipped (symlink): link.png", err)
+        self.assertIn("chute-set: skipped (symlink): link.png", err)
 
     @unittest.skipIf(os.name == "nt", "Windows cannot hold a non-UTF-8 filename")
     def test_non_utf8_filename_is_rejected(self):

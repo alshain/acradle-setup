@@ -594,13 +594,13 @@ def list_members(directory, exclude):
         full = os.path.join(directory, name)
         st = os.lstat(full)
         if stat.S_ISLNK(st.st_mode):
-            print("skipped (symlink): %s" % _shown(name), file=sys.stderr)
+            print("chute-set: skipped (symlink): %s" % _shown(name), file=sys.stderr)
             continue
         if stat.S_ISDIR(st.st_mode):
-            print("skipped (directory): %s" % _shown(name), file=sys.stderr)
+            print("chute-set: skipped (directory): %s" % _shown(name), file=sys.stderr)
             continue
         if not stat.S_ISREG(st.st_mode):
-            print("skipped (not a regular file): %s" % _shown(name), file=sys.stderr)
+            print("chute-set: skipped (not a regular file): %s" % _shown(name), file=sys.stderr)
             continue
         if any(_same(full, x) for x in exclude):
             continue
