@@ -933,6 +933,25 @@ class TestCheck(Base):
         self.assertTrue(got.startswith("producer-only: "), got)
         self.assertIn("encrypted", got)
 
+    def test_local_header_name_mismatch_is_producer_only(self):
+        # Go reads a member through its central-directory entry and never
+        # compares the local header's name, so the server stores this as a set
+        # (observed: 201, set_item_count=1, chuted 50322ea). Python's zipfile
+        # refuses to open it, so the mirror cannot read the manifest; it must
+        # not answer in the server's wording for an archive the server accepts.
+        p = self.raw_zip([(self.M, self.one(), None, None, None), ("a.png", b"x", None, None, None)])
+        with open(p, "rb") as f:
+            data = bytearray(f.read())
+        i = data.find(b"PK\x03\x04")  # the manifest's local header comes first
+        name_at = data.find(self.M.encode(), i)
+        data[name_at + len(self.M) - 1] = ord("X")
+        with open(p, "wb") as f:
+            f.write(bytes(data))
+        got = cs.check_archive(p)
+        self.assertIsNotNone(got)
+        self.assertTrue(got.startswith("producer-only: "), got)
+        self.assertIn("local header", got)
+
     def test_check_cli_prints_server_wording_only(self):
         p = self.raw_zip([(self.M, self.one(title=""), None, None, None), ("a.png", b"x", None, None, None)])
         rc, out, err = run("check", p)

@@ -5,10 +5,13 @@
 # main 50322eaf44c39f2002dfdcb066a03c5b8200546f. Item indices are 0-based manifest positions.
 # VALID  = the server stores it as a set (201) and chute-set.py check prints nothing.
 # ACCEPT = the server stores it as a set (201) but check reports it "producer-only:"
-#          (mis-cased key: Go's decoder folds case, the phone's kotlinx decoder does not).
+#          (mis-cased key: Go's decoder folds case, the phone's kotlinx decoder does not;
+#          a local header name that differs from the central directory: Go never reads
+#          it, Python's zipfile refuses the member, so the mirror cannot vouch for it).
 # Hand-kept until chute publishes internal/set/testdata (spec, Changes needed in chute, 3).
 valid-control-char-title.json	VALID	--member a.png
 miscased-title.json	ACCEPT	--member a.png
+local-name-differs.json	ACCEPT	--member a.png --local-name-differs
 chute-set-2.json	chute_set must be 1	--member a.png
 unknown-field.json	manifest is not valid JSON for this format	--member a.png
 zero-items.json	a set needs at least one item	

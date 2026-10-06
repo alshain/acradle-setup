@@ -493,7 +493,18 @@ def check_archive(path):
             return "manifest member could not be opened"
         try:
             f = zf.open(manifest)
-        except (zipfile.BadZipFile, NotImplementedError, RuntimeError, OSError, ValueError, EOFError):
+        except zipfile.BadZipFile as e:
+            if "differ" in str(e):
+                # zipfile compares the local header's name with the central
+                # directory's; Go never reads the local name, so the server
+                # accepts this. The mirror cannot read the manifest to vouch
+                # for it, and must not answer in server wording.
+                return (
+                    "producer-only: %s: the local header names it differently from "
+                    "the central directory (the server reads only the latter)" % MANIFEST_PATH
+                )
+            return "manifest member could not be opened"
+        except (NotImplementedError, RuntimeError, OSError, ValueError, EOFError):
             return "manifest member could not be opened"
         try:
             with f:

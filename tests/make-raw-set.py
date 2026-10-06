@@ -15,6 +15,11 @@ reaches the server with that rule broken. Never use it to produce a real set.
                 trailing slash, so only the mode bits make it non-regular)
   --pad-to N    append spaces to the manifest until it is exactly N bytes
                 (JSON allows trailing whitespace; the size rule fires first)
+  --local-name-differs
+                rewrite the last byte of the manifest's LOCAL header name
+                (".chute/set.jsoX"), leaving the central directory intact:
+                Go reads members via the central directory and accepts it,
+                Python's zipfile refuses to open it
 
 The manifest is entry 0; members follow in argument order (members, then
 directory members). Python >= 3.10, standard library only.
@@ -43,6 +48,7 @@ def main(argv=None):
     p.add_argument("--member", action="append", default=[])
     p.add_argument("--dir-member", action="append", default=[])
     p.add_argument("--pad-to", type=int)
+    p.add_argument("--local-name-differs", action="store_true")
     a = p.parse_args(argv)
 
     with open(a.manifest, "rb") as f:
@@ -60,6 +66,18 @@ def main(argv=None):
                 zf.writestr(_info(name, 0o100644), ("member %s\n" % name).encode("utf-8"))
             for name in a.dir_member:
                 zf.writestr(_info(name, 0o040755), b"")
+
+    if a.local_name_differs:
+        with open(a.out, "rb") as f:
+            data = bytearray(f.read())
+        # entry 0 is the manifest; its local header (and name) start the file
+        name = b".chute/set.json"
+        at = 30  # fixed-size part of a local file header
+        if data[:4] != b"PK\x03\x04" or data[at : at + len(name)] != name:
+            p.error("unexpected layout: the manifest is not the first local header")
+        data[at + len(name) - 1] = ord("X")
+        with open(a.out, "wb") as f:
+            f.write(bytes(data))
     return 0
 
 
