@@ -140,11 +140,11 @@ Checked against `50322ea`; these are the traps, each pinned by a test below.
 
 ### Task 7: acradle-side docs (after step 10 only; separate repo, `dev` branch)
 
-Gated on the push: until then the docs would describe a flag no VM can have.
+Gated on the push: until then the docs would describe a flag no VM can have. (As done: run before step 10 on the orchestrator's instruction, as acradle `c28f37a`, unpushed. The host and worktree forms work at once, since both call the sibling `../acradle-setup` checkout, which already carries `--set`; the pre-0.2.0 paragraph covers every VM until the push. The worktree path is written `<main-checkout>/../acradle-setup/…`, because `../acradle-setup` from a worktree resolves inside `.claude/worktrees/`. The old VM's exact text is `chute-push: unknown flag: --set`, checked against `5edcd2f`'s parser. The AGENTS.md Manual API pointer now names `reference.md`.)
 
-- [ ] acradle `AGENTS.md` chute section: the set command in host form (`HOME="$PWD"` from the main checkout); worktree sessions build with `python3 ../acradle-setup/plugins/acradle-vm/skills/pushing-artifacts-to-phone/chute-set.py --out set.zip <dir>` then the one sanctioned `curl -T`; links now render as *Open*, *Install* **or *Gallery***; a pre-0.2.0 VM answers `--set` with a usage error — push single files there.
-- [ ] acradle `docs/gaps.md`: one line — the ensure-latest plugin gap now has a concrete consequence (long-lived VMs never get `--set`).
-- [ ] One `docs:` commit on acradle `dev`.
+- [x] acradle `AGENTS.md` chute section: the set command in host form (`HOME="$PWD"` from the main checkout); worktree sessions build with `python3 ../acradle-setup/plugins/acradle-vm/skills/pushing-artifacts-to-phone/chute-set.py --out set.zip <dir>` then the one sanctioned `curl -T`; links now render as *Open*, *Install* **or *Gallery***; a pre-0.2.0 VM answers `--set` with a usage error — push single files there.
+- [x] acradle `docs/gaps.md`: one line — the ensure-latest plugin gap now has a concrete consequence (long-lived VMs never get `--set`).
+- [x] One `docs:` commit on acradle `dev`.
 
 ### Task 8: human-only and cross-repo follow-ups (not agent work; listed so they are not lost)
 
