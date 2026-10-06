@@ -58,11 +58,13 @@ exec "$REAL_CURL" -H "X-Forwarded-For: 10.\$(( (\$\$ >> 16) & 255 )).\$(( (\$\$ 
 EOF
 chmod +x "$CURL_SHIM/curl"
 
+# PUSH_URL overrides the server (an unreachable one proves "nothing was
+# sent"); PUSH_BIN runs another copy of chute-push (the tripwire stub skill).
 run_push() {  # run_push <cwd> <outfile> [args...]
   local cwd="$1" out="$2"; shift 2
-  ( cd "$cwd" && PATH="$CURL_SHIM:$PATH" HOME="$AGENT_HOME" CHUTE_URL="$BASE" \
+  ( cd "$cwd" && PATH="$CURL_SHIM:$PATH" HOME="$AGENT_HOME" CHUTE_URL="${PUSH_URL:-$BASE}" \
       GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 \
-      bash "$PUSH" "$@" ) > "$out" 2>&1
+      bash "${PUSH_BIN:-$PUSH}" "$@" ) > "$out" 2>&1
 }
 
 wait_for_line() {  # wait_for_line <file> <grep-pattern> <seconds>
@@ -85,6 +87,17 @@ approve() {  # approve <code> <name>
 deny() {
   curl -fsS -X POST "$BASE/v1/pairings/$1/deny" \
     -H "Authorization: Bearer $DEVICE_TOKEN" >/dev/null
+}
+
+# Pairs the agent once (s13; s10 normally pairs first), unless a token is held.
+ensure_paired() {  # ensure_paired <dir> <project-name>
+  [ -s "$AGENT_HOME/.config/chute/token" ] && return 0
+  mkdir -p "$1"; printf 'seed %s\n' "$2" > "$1/seed.txt"
+  run_push "$1" "$WORK/pair-$2.out" --stream docs seed.txt &
+  local bg=$!
+  wait_for_line "$WORK/pair-$2.out" 'PAIRING CODE:' 20 || { cat "$WORK/pair-$2.out"; fail "no banner pairing $2"; }
+  approve "$(code_from "$WORK/pair-$2.out")" "$2"
+  wait "$bg" || fail "pairing push for $2 failed: $(cat "$WORK/pair-$2.out")"
 }
 
 # ── server ────────────────────────────────────────────────────────────────
@@ -213,16 +226,169 @@ rc=0; wait "$BG" || rc=$?
 [ ! -f "$AGENT_HOME/.config/chute/pending-pairing" ] || fail "pending file survived denial"
 ok "denial is a clean failure"
 
-# Pairs the agent once for the set scenarios, unless a token is already held.
-ensure_paired() {  # ensure_paired <dir> <project-name>
-  [ -s "$AGENT_HOME/.config/chute/token" ] && return 0
-  mkdir -p "$1"; printf 'seed %s\n' "$2" > "$1/seed.txt"
-  run_push "$1" "$WORK/pair-$2.out" --stream docs seed.txt &
-  local bg=$!
-  wait_for_line "$WORK/pair-$2.out" 'PAIRING CODE:' 20 || { cat "$WORK/pair-$2.out"; fail "no banner pairing $2"; }
-  approve "$(code_from "$WORK/pair-$2.out")" "$2"
-  wait "$bg" || fail "pairing push for $2 failed: $(cat "$WORK/pair-$2.out")"
+# ── set fixtures ─────────────────────────────────────────────────────────
+PNG_B64='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+png() { local f; for f in "$@"; do printf '%s' "$PNG_B64" | base64 -d > "$f"; done; }
+line_of() { grep -nF -- "$2" "$1" | head -n1 | cut -d: -f1; }  # line_of <file> <fixed-string>
+resp_of() { grep -F -- "$2" "$1" | head -n1 | sed 's/^[^{]*//'; }  # JSON tail of a chute-push line
+
+# ── 10. set push: built before pairing, Gallery link, manifest read-back ──
+d10="$WORK/proj-sets"; R10="$d10/renders"; mkdir -p "$R10"
+png "$R10/a.png" "$R10/b.png" "$R10/c.png"
+printf '# what changed\n' > "$R10/notes.md"
+T_C='Über <b> & "quotes" — café'
+T_MD="$(printf '%.0sé' $(seq 120))"   # 120 runes, 240 bytes: the title cap is runes
+printf 'c.png\t%s\tdescription with é\nnotes.md\t%s\t\n' "$T_C" "$T_MD" > "$R10/items.tsv"
+SET10=(--stream screenshots --set renders --items renders/items.tsv --cover b.png)
+run_push "$d10" "$WORK/s10.out" "${SET10[@]}" --version v1 --notes "before/after" &
+BG=$!
+wait_for_line "$WORK/s10.out" 'PAIRING CODE:' 20 || { cat "$WORK/s10.out"; fail "no pairing banner (s10)"; }
+approve "$(code_from "$WORK/s10.out")" "proj-sets"
+rc=0; wait "$BG" || rc=$?
+[ "$rc" = 0 ] || fail "s10 set push: rc=$rc $(cat "$WORK/s10.out")"
+grep -qF "uploaded set 'renders.zip' (4 items) to stream 'screenshots'" "$WORK/s10.out" \
+  || fail "s10: no set upload line: $(cat "$WORK/s10.out")"
+lb="$(line_of "$WORK/s10.out" 'chute-set: 4 items')"; lp="$(line_of "$WORK/s10.out" 'PAIRING CODE:')"
+[ -n "$lb" ] && [ "$lb" -lt "$lp" ] || fail "s10: the set was not built before pairing (build line $lb, banner line $lp)"
+R10JSON="$(resp_of "$WORK/s10.out" "uploaded set 'renders.zip'")"
+[ "$(jget "$R10JSON" j.set_item_count)" = 4 ] || fail "s10: set_item_count: $R10JSON"
+[ "$(jget "$R10JSON" j.created)" = true ] || fail "s10: created: $R10JSON"
+V10="$(jget "$R10JSON" j.version_id)"
+grep -qF "[Open](chute://version/$V10) · [Gallery](chute://set/$V10)" "$WORK/s10.out" \
+  || fail "s10: no Open · Gallery deep links: $(cat "$WORK/s10.out")"
+! grep -qF '[Install]' "$WORK/s10.out" || fail "s10: a set must not offer Install"
+# The stored manifest is byte-identical to what chute-set.py builds offline
+# from the same inputs, and so is the whole archive (determinism, D4).
+curl -fsS -o "$WORK/s10.stored" -H "Authorization: Bearer $DEVICE_TOKEN" "$BASE/v1/versions/$V10/set" \
+  || fail "s10: manifest read-back"
+python3 "$SET_PY" --out "$WORK/s10-ref.zip" --items "$R10/items.tsv" --cover b.png \
+  --manifest-out "$WORK/s10.manifest" "$R10" > /dev/null || fail "s10: offline reference build"
+cmp -s "$WORK/s10.stored" "$WORK/s10.manifest" || fail "s10: stored manifest differs from chute-set.py's"
+[ "$(sha256sum "$WORK/s10-ref.zip" | cut -d' ' -f1)" = "$(jget "$R10JSON" j.sha256)" ] \
+  || fail "s10: uploaded archive is not the deterministic offline build"
+M10="$(cat "$WORK/s10.stored")"
+# The phone's decoder is case-sensitive: the on-the-wire keys are pinned here.
+[ "$(jget "$M10" 'Object.keys(j).join()')" = "chute_set,items" ] || fail "s10: top-level keys: $M10"
+[ "$(jget "$M10" '[...new Set(j.items.map(i=>Object.keys(i).join()))].join("|")')" = \
+  "id,path,title,description,content_type" ] || fail "s10: item keys: $M10"
+[ "$(jget "$M10" 'j.chute_set')" = 1 ] || fail "s10: chute_set: $M10"
+[ "$(jget "$M10" 'j.items.map(i=>i.path).join()')" = "b.png,c.png,notes.md,a.png" ] \
+  || fail "s10: order is not cover, TSV rows, then by name: $M10"
+[ "$(jget "$M10" 'j.items[1].title')" = "$T_C" ] || fail "s10: UTF-8/<>&\" title mangled: $M10"
+[ "$(jget "$M10" '[...j.items[2].title].length')" = 120 ] || fail "s10: 120-rune title: $M10"
+ok "set push: 4 items, built before pairing, Gallery link, manifest read back byte-identical"
+
+# ── 11. unchanged set re-pushed: replay, links again, --version ignored ──
+run_push "$d10" "$WORK/s11.out" "${SET10[@]}" --version v2 || fail "s11 replay: $(cat "$WORK/s11.out")"
+grep -q 'already on the server (idempotent replay)' "$WORK/s11.out" || fail "s11: no replay line: $(cat "$WORK/s11.out")"
+grep -qF "set 'renders.zip' (4 items)" "$WORK/s11.out" || fail "s11: replay line lacks the item count"
+[ "$(jget "$(resp_of "$WORK/s11.out" 'idempotent replay')" j.version_id)" = "$V10" ] || fail "s11: version id changed"
+grep -qF -- '--version/--notes were ignored' "$WORK/s11.out" || fail "s11: no ignored note: $(cat "$WORK/s11.out")"
+grep -qF "[Gallery](chute://set/$V10)" "$WORK/s11.out" || fail "s11: no Gallery link on replay"
+LIST="$(curl -fsS "$BASE/v1/projects" -H "Authorization: Bearer $DEVICE_TOKEN")"
+[ "$(jget "$LIST" 'j.find(p=>p.name==="proj-sets").streams.find(s=>s.name==="screenshots").latest.version_name')" = v1 ] \
+  || fail "s11: server should keep the original version name"
+ok "unchanged set: replay, same version, --version ignored and said so"
+
+# ── 12. set inputs rejected locally, before any network ──────────────────
+[ -s "$AGENT_HOME/.config/chute/token" ] || fail "s12 needs a held token (so pairing cannot be what fails)"
+d12="$WORK/s12"; mkdir -p "$d12/many" "$d12/xyz" "$d12/empty" "$d12/blank" "$d12/miss"
+for i in $(seq -w 1 101); do png "$d12/many/p$i.png"; done
+png "$d12/xyz/a.png"; printf 'x\n' > "$d12/xyz/foo.xyz"
+png "$d12/blank/a.png"; printf 'a.png\t   \t\n' > "$d12/blank.tsv"
+png "$d12/miss/a.png"; printf 'a.png\tA\t\nnope.png\tN\t\n' > "$d12/miss.tsv"
+s12case() {  # s12case <label> <expected-text> [chute-push set args...]
+  local label="$1" want="$2" rc=0; shift 2
+  PUSH_URL="http://127.0.0.1:1" run_push "$d12" "$WORK/s12-$label.out" --stream screenshots "$@" || rc=$?
+  [ "$rc" = 3 ] || fail "s12 $label: rc=$rc (want 3): $(cat "$WORK/s12-$label.out")"
+  grep -qF -- "$want" "$WORK/s12-$label.out" || fail "s12 $label: missing '$want': $(cat "$WORK/s12-$label.out")"
+  ! grep -q 'cannot reach' "$WORK/s12-$label.out" || fail "s12 $label: reached for the network"
 }
+s12case many 'a set holds at most 100 items' --set many
+s12case xyz 'foo.xyz: no content type is known for ".xyz"' --set xyz
+s12case empty 'a set needs at least one item' --set empty
+s12case blank 'item 0 (a.png): title is required' --set blank --items blank.tsv
+s12case miss "line 2: 'nope.png' is not a file" --set miss --items miss.tsv
+ok "set inputs rejected with exit 3 before any network (101 files, .xyz, empty, blank title, missing row)"
+# No python3: a PATH holding only what chute-push runs before its python3
+# check (exec wrappers, so this works wherever the real tools live).
+NOPY="$WORK/nopy"; mkdir -p "$NOPY"
+for t in dirname basename mktemp rm; do
+  printf '#!%s\nexec %s "$@"\n' "$BASH" "$(command -v "$t")" > "$NOPY/$t"; chmod +x "$NOPY/$t"
+done
+rc=0; ( cd "$d12" && PATH="$NOPY" HOME="$AGENT_HOME" CHUTE_URL="http://127.0.0.1:1" \
+  "$BASH" "$PUSH" --stream screenshots --set xyz ) > "$WORK/s12-nopy.out" 2>&1 || rc=$?
+[ "$rc" = 1 ] && grep -qF -- '--set needs python3' "$WORK/s12-nopy.out" \
+  && grep -qF 'single-file pushes still work' "$WORK/s12-nopy.out" || fail "s12 no python3: rc=$rc $(cat "$WORK/s12-nopy.out")"
+ok "no python3: --set says so (single-file pushes unaffected)"
+
+# ── 14. null-case controls: plain zip, .apk name, usage ──────────────────
+d14="$WORK/s14"; mkdir -p "$d14"
+python3 -c 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1],"w"); z.writestr("a.txt","plain"); z.close()' "$d14/plain.zip"
+run_push "$d14" "$WORK/s14a.out" --stream docs plain.zip || fail "s14 plain zip: $(cat "$WORK/s14a.out")"
+[ "$(jget "$(resp_of "$WORK/s14a.out" "uploaded 'plain.zip'")" j.set_item_count)" = 0 ] || fail "s14: plain zip counted as a set"
+grep -qF '[Install](chute://version/' "$WORK/s14a.out" || fail "s14: plain zip lacks Install"
+! grep -qF '[Gallery]' "$WORK/s14a.out" || fail "s14: plain zip offered a Gallery"
+python3 "$SET_PY" --out "$d14/x.apk" --items "$R10/items.tsv" --cover b.png "$R10" > /dev/null || fail "s14: build x.apk"
+rc=0; run_push "$d14" "$WORK/s14b.out" --stream test-apk x.apk || rc=$?
+[ "$rc" = 1 ] && grep -q 'APK could not be parsed' "$WORK/s14b.out" || fail "s14 set-as-apk: rc=$rc $(cat "$WORK/s14b.out")"
+s14usage() {  # s14usage <label> <expected-text> [args...]
+  local label="$1" want="$2" rc=0; shift 2
+  PUSH_URL="http://127.0.0.1:1" run_push "$d10" "$WORK/s14-$label.out" --stream screenshots "$@" || rc=$?
+  [ "$rc" = 2 ] && grep -qF -- "$want" "$WORK/s14-$label.out" || fail "s14 $label: rc=$rc $(cat "$WORK/s14-$label.out")"
+}
+s14usage apkname 'a set must not be named .apk' --set renders --name x.APK
+s14usage positional 'usage:' --set renders renders/a.png
+s14usage itemsalone 'usage:' --items renders/items.tsv renders/a.png
+ok "plain zip gets Install not Gallery; set zip as .apk is refused by the server; .apk name and flag misuse are usage errors"
+
+# Tripwires: a stub skill whose "chute-set.py" hands chute-push a prepared
+# archive, so the drift alarms can be exercised against the real server.
+STUB="$WORK/stubskill"; mkdir -p "$STUB"; cp "$PUSH" "$STUB/chute-push"
+cat > "$STUB/chute-set.py" <<'EOF'
+# harness stub: copies $STUB_ZIP to --out instead of building a set
+import os, shutil, sys
+CONFORMED_TO_CHUTE = "0123456789abcdef0123456789abcdef01234567"
+a = sys.argv[1:]
+shutil.copyfile(os.environ["STUB_ZIP"], a[a.index("--out") + 1])
+EOF
+python3 -c 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1],"w"); z.writestr("b.txt","no manifest"); z.close()' "$d14/drift.zip"
+rc=0; ( export STUB_ZIP="$d14/drift.zip"; PUSH_BIN="$STUB/chute-push" run_push "$d10" "$WORK/s14d.out" --stream screenshots --set renders ) || rc=$?
+[ "$rc" = 1 ] && grep -qF "stored 'renders.zip' as a plain artifact, not a set" "$WORK/s14d.out" \
+  || fail "s14 tripwire A: rc=$rc $(cat "$WORK/s14d.out")"
+! grep -qF 'chute://' "$WORK/s14d.out" || fail "s14 tripwire A: relayed links for a drifted push"
+python3 "$MAKE_RAW" --out "$d14/invalid.zip" --manifest "$CORPUS/blank-title.json" --member a.png || fail "s14: make invalid"
+rc=0; ( export STUB_ZIP="$d14/invalid.zip"; PUSH_BIN="$STUB/chute-push" run_push "$d10" "$WORK/s14e.out" --stream screenshots --set renders ) || rc=$?
+[ "$rc" = 1 ] && grep -qF 'set manifest is invalid: item 0: title is required' "$WORK/s14e.out" \
+  && grep -qF 'producer bug' "$WORK/s14e.out" \
+  && grep -qF 'CONFORMED_TO_CHUTE=0123456789abcdef0123456789abcdef01234567' "$WORK/s14e.out" \
+  || fail "s14 tripwire B: rc=$rc $(cat "$WORK/s14e.out")"
+ok "tripwires: plain-artifact drift (A) and a server-rejected manifest (B) fail loud with exit 1"
+
+# ── 15. optional byte-identity against chute's own cmd/chute-set ─────────
+if [ -n "${CHUTE_SET_BIN:-}" ]; then
+  d15="$WORK/s15"; mkdir -p "$d15/imgs"
+  png "$d15/imgs/a.png" "$d15/imgs/b.jpg" "$d15/imgs/c.webp" "$d15/imgs/d e.gif"
+  # Image members only, TSV outside the dir, rows in sorted order, no --cover:
+  # the one configuration in which both producers must agree byte for byte.
+  printf 'a.png\tA <b> & "c" é\tdesc é\nb.jpg\t\t\nc.webp\tÜnïcödé — title\t\n' > "$d15/titles.tsv"
+  "$CHUTE_SET_BIN" -o "$d15/go.zip" -title-from "$d15/titles.tsv" "$d15/imgs" > /dev/null 2>&1 || fail "s15: chute-set failed"
+  python3 -c 'import sys,zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(".chute/set.json"))' "$d15/go.zip" > "$d15/go.json"
+  python3 "$SET_PY" --out "$d15/py.zip" --items "$d15/titles.tsv" --manifest-out "$d15/py.json" "$d15/imgs" > /dev/null \
+    || fail "s15: chute-set.py failed"
+  cmp -s "$d15/go.json" "$d15/py.json" || fail "s15: manifests differ"$'\n'"  go: $(cat "$d15/go.json")"$'\n'"  py: $(cat "$d15/py.json")"
+  ok "byte-identical manifest to cmd/chute-set ($CHUTE_SET_BIN)"
+else
+  echo "SKIP: s15 byte-identity (set CHUTE_SET_BIN to a cmd/chute-set build)"
+fi
+
+# ── 16. local size pre-check against CHUTE_MAX_UPLOAD_BYTES ──────────────
+d16="$WORK/s16"; mkdir -p "$d16/big"; png "$d16/big/a.png"
+head -c 4096 /dev/urandom > "$d16/big/noise.txt"   # incompressible: the zip stays > 1000 bytes
+rc=0; ( export CHUTE_MAX_UPLOAD_BYTES=1000; PUSH_URL="http://127.0.0.1:1" run_push "$d16" "$WORK/s16.out" --stream docs --set big ) || rc=$?
+[ "$rc" = 3 ] && grep -qF 'over the upload cap of 1000 bytes' "$WORK/s16.out" || fail "s16: rc=$rc $(cat "$WORK/s16.out")"
+! grep -q 'cannot reach' "$WORK/s16.out" || fail "s16: reached for the network"
+ok "oversized set refused locally (exit 3) before any request"
 
 # ── 13. error-text parity: chuted vs chute-set.py check vs the corpus ────
 # Each corpus manifest is zipped UNVALIDATED (make-raw-set.py) and PUT with

@@ -2,10 +2,22 @@
 # chute-push — send an artifact to the user's phone via chute.
 #
 #   chute-push --stream <name> [--version NAME] [--notes TEXT] [--wait SECONDS] <file>
+#   chute-push --stream <name> --set <dir> [--items <tsv>] [--cover NAME]
+#              [--type EXT=MIME]... [--name <file.zip>] [--version NAME]
+#              [--notes TEXT] [--wait SECONDS]
 #
 # Pairs on first use (phone approval; code printed loudly and persisted so a
-# re-run resumes the same code). Token: ~/.config/chute/token. Exit codes:
-# 0 success, 2 usage, 1 anything else.
+# re-run resumes the same code). Token: ~/.config/chute/token.
+#
+# --set pushes the top-level files of <dir> as ONE chute artifact set (one
+# notification, one gallery on the phone). The zip is built by chute-set.py
+# (next to this script; needs python3, stdlib only) BEFORE any pairing or
+# network, so a bad set never costs a phone tap. --items is a TSV of
+# filename<TAB>title<TAB>description (row order = display order); --cover
+# puts one file first; --notes describes the whole set.
+#
+# Exit codes: 0 success, 2 usage, 3 (--set only) your inputs were rejected
+# locally and nothing was sent — fix them and re-run, 1 anything else.
 set -euo pipefail
 
 CHUTE_URL="${CHUTE_URL:-https://chute.vqrs.ch}"
@@ -17,11 +29,17 @@ PENDING_FILE="${CONFIG_DIR}/pending-pairing"
 POLL_INTERVAL=10
 
 STREAM="" VERSION="" NOTES="" FILE="" WAIT=300
+SET_DIR="" ITEMS="" COVER="" NAME="" SET_ONLY=0
+TYPES=()
 
 die() { echo "chute-push: $*" >&2; exit 1; }
+reject() { echo "chute-push: $*" >&2; exit 3; }   # --set inputs refused; nothing sent
 
 usage() {
+  [ "$#" -eq 0 ] || echo "chute-push: $*" >&2
   echo "usage: chute-push --stream <name> [--version NAME] [--notes TEXT] [--wait SECONDS] <file>" >&2
+  echo "       chute-push --stream <name> --set <dir> [--items <tsv>] [--cover NAME] [--type EXT=MIME]..." >&2
+  echo "                  [--name <file.zip>] [--version NAME] [--notes TEXT] [--wait SECONDS]" >&2
   exit 2
 }
 
@@ -33,6 +51,11 @@ while [ "$#" -gt 0 ]; do
     --version) need_val "$@"; VERSION="$2"; shift 2 ;;
     --notes)   need_val "$@"; NOTES="$2";   shift 2 ;;
     --wait)    need_val "$@"; WAIT="$2";    shift 2 ;;
+    --set)     need_val "$@"; SET_DIR="$2"; shift 2 ;;
+    --items)   need_val "$@"; ITEMS="$2";   SET_ONLY=1; shift 2 ;;
+    --cover)   need_val "$@"; COVER="$2";   SET_ONLY=1; shift 2 ;;
+    --type)    need_val "$@"; TYPES+=(--type "$2"); SET_ONLY=1; shift 2 ;;
+    --name)    need_val "$@"; NAME="$2";    SET_ONLY=1; shift 2 ;;
     -h|--help) usage ;;
     -*)        die "unknown flag: $1" ;;
     *)         [ -z "$FILE" ] || usage; FILE="$1"; shift ;;
@@ -40,11 +63,52 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -n "$STREAM" ] || usage
-[ -n "$FILE" ] || usage
-[ -r "$FILE" ] || die "cannot read file: $FILE"
+if [ -n "$SET_DIR" ]; then
+  [ -z "$FILE" ] || usage "--set takes a directory, not a file as well"
+  [ -d "$SET_DIR" ] || reject "--set: not a directory: $SET_DIR"
+  [ -n "$NAME" ] || NAME="$(basename "$(cd "$SET_DIR" && pwd)").zip"
+  case "$NAME" in */*|*\\*) usage "--name must be a file name, not a path" ;; esac
+  # The server runs its APK parser first and exclusively for an .apk name
+  # (chute internal/api/upload.go), so a set named that way is rejected.
+  case "${NAME,,}" in
+    *.apk) usage "a set must not be named .apk: the server would run its APK parser first" ;;
+  esac
+else
+  [ "$SET_ONLY" = 0 ] || usage "--items, --cover, --type and --name need --set"
+  [ -n "$FILE" ] || usage
+  [ -r "$FILE" ] || die "cannot read file: $FILE"
+fi
 
 TMP="$(mktemp)"
-trap 'rm -f "$TMP"' EXIT
+SET_TMP=""
+trap 'rm -f "$TMP"; if [ -n "$SET_TMP" ]; then rm -rf "$SET_TMP"; fi' EXIT
+
+# Build the set before anything touches the network: a rejected input costs
+# no pairing and no upload. chute-set.py exits 3 for inputs it refuses (its
+# message names the file and the rule), 2 for usage, 1 for a bug or I/O.
+if [ -n "$SET_DIR" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  command -v python3 >/dev/null 2>&1 \
+    || die "--set needs python3 (present on acradle guests); single-file pushes still work"
+  SET_TMP="$(mktemp -d)"
+  FILE="$SET_TMP/$NAME"
+  build_args=(--out "$FILE")
+  if [ -n "$ITEMS" ]; then build_args+=(--items "$ITEMS"); fi
+  if [ -n "$COVER" ]; then build_args+=(--cover "$COVER"); fi
+  build_args+=("${TYPES[@]}" "$SET_DIR")
+  brc=0; python3 "$SCRIPT_DIR/chute-set.py" "${build_args[@]}" || brc=$?
+  case "$brc" in
+    0) ;;
+    2|3) exit "$brc" ;;
+    *) die "building the set failed (chute-set.py exit $brc); nothing was sent" ;;
+  esac
+  max="${CHUTE_MAX_UPLOAD_BYTES:-536870912}"
+  size="$(wc -c < "$FILE" | tr -d ' ')"
+  if [ "$size" -gt "$max" ]; then
+    reject "the set archive is $size bytes, over the upload cap of $max bytes (CHUTE_MAX_UPLOAD_BYTES); nothing was sent
+hint: split the files into several sets"
+  fi
+fi
 
 # Percent-encode a string byte-wise (LC_ALL=C makes ${s:i:1} a byte, so
 # UTF-8 comes out as %XX%XX... — required for query parameters like notes).
@@ -67,17 +131,25 @@ json_field() {
   printf '%s' "$1" | grep -o "\"$2\":\"[^\"]*\"" | head -n1 | sed 's/^"[^"]*":"//; s/"$//'
 }
 
+# First non-negative integer value for a key: "key":123. Empty when absent.
+json_num() {
+  printf '%s' "$1" | { grep -o "\"$2\":[0-9]*" || true; } | head -n1 | sed 's/^"[^"]*"://'
+}
+
 # The one owner of the chute:// deep-link format in this language (chute's
 # docs/deep-links.md; the Kotlin side is ChuteLink). Emits finished markdown so
 # the agent relays a line verbatim rather than composing a URL — and so the raw
 # chute:// string is never shown to the user. Nothing else in this script may
 # write a chute:// string.
 #   deep_link version ID   -> [Open](...) · [Install](...)
+#   deep_link set ID       -> [Open](...) · [Gallery](chute://set/ID)
 #   deep_link approvals    -> [Approve on phone](chute://approvals)
 deep_link() {
   case "$1" in
     version)
       printf '[Open](chute://version/%s) · [Install](chute://version/%s?action=install)' "$2" "$2" ;;
+    set)
+      printf '[Open](chute://version/%s) · [Gallery](chute://set/%s)' "$2" "$2" ;;
     approvals)
       printf '[Approve on phone](chute://approvals)' ;;
     *) die "deep_link: unknown kind '$1'" ;;
@@ -196,7 +268,7 @@ pair() {
 # Uploads $FILE. Returns 0 on success, 41 on auth rejection (caller
 # re-pairs once); dies on every other failure.
 upload() {
-  local token qs http branch commit resp vid
+  local token qs http branch commit resp vid count shown conformed
   token="$(cat "$TOKEN_FILE")"
   qs="filename=$(urlencode "$(basename "$FILE")")"
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
@@ -213,18 +285,48 @@ upload() {
     201|200)
       resp="$(cat "$TMP")"
       vid="$(json_field "$resp" version_id)"
-      if [ "$http" = "200" ]; then
-        echo "chute-push: already on the server (idempotent replay): $resp"
+      count="$(json_num "$resp" set_item_count)"
+      if [ -n "$SET_DIR" ] && [ "${count:-0}" -eq 0 ]; then
+        # Tripwire A: chute-set.py built a set the server did not recognise.
+        die "server stored '$(basename "$FILE")' as a plain artifact, not a set (set_item_count=${count:-0}) — chute-set.py and chute have drifted; report this: $resp"
+      fi
+      if [ -n "$SET_DIR" ]; then
+        shown="set '$(basename "$FILE")' ($count items)"
       else
-        echo "chute-push: uploaded '$(basename "$FILE")' to stream '$STREAM': $resp"
+        shown="'$(basename "$FILE")'"
+      fi
+      if [ "$http" = "200" ]; then
+        if [ -n "$SET_DIR" ]; then
+          echo "chute-push: already on the server (idempotent replay): $shown: $resp"
+          if [ -n "$VERSION$NOTES" ]; then
+            echo "chute-push: --version/--notes were ignored: the server keeps the existing version as it was; only a changed file or caption makes a new version (and a new notification)"
+          fi
+        else
+          echo "chute-push: already on the server (idempotent replay): $resp"
+        fi
+      else
+        echo "chute-push: uploaded $shown to stream '$STREAM': $resp"
       fi
       if [ -n "$vid" ]; then
         echo ""
         echo "DEEP LINKS (relay to the user verbatim, as markdown — never the raw URL):"
-        echo "  $(deep_link version "$vid")"
+        if [ "${count:-0}" -gt 0 ]; then
+          echo "  $(deep_link set "$vid")"
+        else
+          echo "  $(deep_link version "$vid")"
+        fi
         echo ""
       fi
       ;;
+    400)
+      if [ -n "$SET_DIR" ] && grep -qF 'set manifest is invalid' "$TMP"; then
+        # Tripwire B: the server's set.Parse refused what chute-set.py's
+        # mirror of it accepted. The server reclaimed the blob; no version.
+        conformed="$(sed -n 's/^CONFORMED_TO_CHUTE = "\([0-9a-f]*\)".*/\1/p' "$SCRIPT_DIR/chute-set.py")"
+        die "upload refused (HTTP 400): $(cat "$TMP")
+chute-push: this is a producer bug (chute-set.py disagrees with the server, CONFORMED_TO_CHUTE=${conformed:-unknown}); do not retry the same inputs, report it"
+      fi
+      die "upload failed (HTTP $http): $(cat "$TMP")" ;;
     401) return 41 ;;
     413) die "file exceeds the server's upload cap" ;;
     *)   die "upload failed (HTTP $http): $(cat "$TMP")" ;;
