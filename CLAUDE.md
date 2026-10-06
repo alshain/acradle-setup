@@ -54,7 +54,10 @@ plugins/acradle-vm/
   .claude-plugin/plugin.json        # plugin "acradle-vm"
   skills/pushing-artifacts-to-phone/
     SKILL.md                        # judgment: when to push, which stream
-    chute-push                      # executable bash: pairing + upload mechanics
+    chute-push                      # executable bash: pairing + upload mechanics (+ --set)
+    chute-set.py                    # python3 stdlib: builds/checks a chute artifact set (no network)
+    reference.md                    # manual API fallback, kept out of SKILL.md's 500-word body
+tests/test-chute-push.sh            # harness vs a local chuted (also gates SKILL.md: words, trigger words)
 docs/superpowers/specs/             # committed design specs (YYYY-MM-DD-<topic>-design.md)
 ```
 

@@ -112,10 +112,10 @@ Checked against `50322ea`; these are the traps, each pinned by a test below.
 - Modify: `plugins/acradle-vm/skills/pushing-artifacts-to-phone/SKILL.md`
 - Create: `plugins/acradle-vm/skills/pushing-artifacts-to-phone/reference.md`
 
-- [ ] **Step 1:** Word gate (deferred from Task 2: write it now, per Task 2 Step 2's last bullet) — confirm red after adding the sets paragraph and *before* moving the Manual API table.
-- [ ] **Step 2:** Move the Manual API table to `reference.md` (linked by one line), add the spec's "Several related files" paragraph, *Gallery* in "Relaying deep links" with per-link floors (*Open*/*Install* chute 0.1.4+, *Gallery* 0.1.17+), frontmatter description gains "a gallery or set of several screenshots or images, before/after, comparison". Do **not** promise the notification opens the gallery (it lands on `chute://version/<id>`). All `CLAUDE.md`-mandated trigger words stay — add a harness assertion that greps each one in the frontmatter (red-check by deleting one).
-- [ ] **Step 3:** Harness green including the word gate; `claude plugin validate .` clean (if the CLI is available on the host; otherwise record that it was not run).
-- [ ] **Step 4: Commit** `docs(skill): teach artifact sets; move the manual API to reference.md`.
+- [x] **Step 1:** Word gate (deferred from Task 2: write it now, per Task 2 Step 2's last bullet) — confirm red after adding the sets paragraph and *before* moving the Manual API table. (Red first at the new trigger-word check — `install` was never in the frontmatter — then at 559 words.)
+- [x] **Step 2:** Move the Manual API table to `reference.md` (linked by one line), add the spec's "Several related files" paragraph, *Gallery* in "Relaying deep links" with per-link floors (*Open*/*Install* chute 0.1.4+, *Gallery* 0.1.17+), frontmatter description gains "a gallery or set of several screenshots or images, before/after, comparison". Do **not** promise the notification opens the gallery (it lands on `chute://version/<id>`). All `CLAUDE.md`-mandated trigger words stay — add a harness assertion that greps each one in the frontmatter (red-check by deleting one).
+- [x] **Step 3:** Harness green including the word gate; `claude plugin validate .` clean (if the CLI is available on the host; otherwise record that it was not run). (Body was 516 after the move; "Relaying deep links" tightened to 498. Both `validate` runs passed.)
+- [x] **Step 4: Commit** `docs(skill): teach artifact sets; move the manual API to reference.md`.
 
 ### Task 5: `docs/vm-testing.md` (Rollout step 8)
 

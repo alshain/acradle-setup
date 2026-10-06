@@ -100,6 +100,30 @@ ensure_paired() {  # ensure_paired <dir> <project-name>
   wait "$bg" || fail "pairing push for $2 failed: $(cat "$WORK/pair-$2.out")"
 }
 
+# ── 0. SKILL.md gates (static, before any server) ────────────────────────
+# The body is loaded into every session that triggers the skill, so it is
+# capped at 500 words (sets spec "SKILL.md changes"). Counting rule: the
+# body is everything after the closing `---` of the frontmatter, counted by
+# `wc -w`. The frontmatter description is what the model matches a request
+# against, so it must carry every trigger word CLAUDE.md mandates.
+SKILL_DIR="$ROOT/plugins/acradle-vm/skills/pushing-artifacts-to-phone"
+SKILL_MD="$SKILL_DIR/SKILL.md"
+skill_front() { awk '/^---$/{n++; next} n==1' "$SKILL_MD"; }
+skill_body()  { awk 'n>=2 {print} /^---$/{n++}' "$SKILL_MD"; }
+words="$(skill_body | wc -w | tr -d ' ')"
+[ "$words" -le 500 ] || fail "SKILL.md body is $words words (gate: 500); move detail to reference.md"
+for w in artifact artefact APK screenshot image document specification report \
+         binary send user phone install preview chute gallery before/after comparison; do
+  skill_front | grep -qi -- "$w" || fail "SKILL.md frontmatter lacks trigger word '$w'"
+done
+skill_body | grep -q -- '--set' || fail "SKILL.md body does not teach --set"
+skill_body | grep -q 'Gallery' || fail "SKILL.md body does not name the Gallery link"
+skill_body | grep -q '0\.1\.17' || fail "SKILL.md body does not state the Gallery floor (chute 0.1.17+)"
+skill_body | grep -q '(reference\.md)' || fail "SKILL.md does not link reference.md"
+grep -q 'PUT  */v1/streams/{s}/versions' "$SKILL_DIR/reference.md" 2>/dev/null \
+  || fail "reference.md lacks the manual upload route"
+ok "SKILL.md gates: body $words/500 words, trigger words, --set, Gallery floor, reference.md"
+
 # ── server ────────────────────────────────────────────────────────────────
 export CHUTE_DATA_DIR="$WORK/data"
 CHUTE_ADDR="127.0.0.1:$PORT" CHUTE_PUBLIC_URL="$BASE" \

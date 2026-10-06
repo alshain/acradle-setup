@@ -163,6 +163,8 @@ Body is 428 words against the 500 gate. Move the Manual API table (~80 words) to
 
 "Relaying deep links" gains *Gallery* and states the floor per link: *Open*/*Install* need chute 0.1.4+, *Gallery* 0.1.17+ (`chute://set` routing landed 2026-09-14). Frontmatter description gains "a gallery or set of several screenshots or images, before/after, comparison". All mandated trigger words stay.
 
+As built (Rollout step 7): the ~458-word estimate did not hold — with the table moved out, the sets paragraph in and *Gallery* added, the body measured 516, so "Relaying deep links" was tightened (same rules: verbatim markdown, never a raw or composed URL, per-link floors, the notification opens the version screen) to land at 498. The frontmatter was found to lack three of `CLAUDE.md`'s mandated trigger words (*install*, *preview*, *chute*); they are added, and the harness now greps the frontmatter for every mandated word plus *gallery*, *before/after*, *comparison*. The harness's static gate (scenario 0, before the server starts) also asserts the body teaches `--set`, names *Gallery* and its 0.1.17 floor, links `reference.md`, and that `reference.md` carries the upload route. `reference.md` holds the table plus a short "set by hand" note (`python3 chute-set.py --out … DIR`, then the same `PUT`; `set_item_count` 0 means a plain zip — report it), which is the worktree path D3 describes.
+
 ## Testing
 
 **Unit** (`tests/test-chute-set.py`, no network): id derivation cases lifted from chute `cmd/chute-set/main_test.go` (sanitize, 64-char truncation, `-2` dedupe with truncation, emoji → `__`); TSV parsing and the missing-file row; ordering (TSV order then sorted; `--cover`; ids independent of caption order); MIME table precedence and the unknown-extension error; every Layer-1 rule → expected message; manifest bytes: exact key set, `description` always present, `chute_set` is int 1, `<>&"` and newline escaping; determinism (build twice → identical bytes); atomicity (failing build leaves no `OUT.zip`); `check` catches a hand-corrupted archive (symlink entry, dir entry, encrypted flag, mis-cased `Title`). Each red-checked by breaking the rule it pins.
@@ -192,7 +194,7 @@ Order in `C:/Projects/acradle-setup` (`main`), one self-contained commit each:
 4. `chute-set.py` + `tests/test-chute-set.py`.
 5. Corpus + `make-raw-set.py` + harness s13, green on its own (s13 needs only `chute-set.py check` and the server). Split from the original "s12–s16, red until 6" so that no commit leaves the harness red.
 6. Harness s10–s12 and s14–s16, written first and seen red, then `chute-push --set`, `json_num`, `deep_link` kinds, tripwires, exit 3. **Done** (`feat(chute-push): --set …`; red at s10 with s1–s9 green, then every scenario green).
-7. `SKILL.md` + `reference.md` + word gate (the gate is written here, red first).
+7. `SKILL.md` + `reference.md` + word gate (the gate is written here, red first). **Done** (`docs(skill): …`; red at the trigger-word check, then at 559 words with the Manual API still in, green at 498).
 8. `docs/vm-testing.md` (§3 set push, §0 install path).
 9. Version bump 0.1.0 → 0.2.0 (`plugin.json`, both `marketplace.json` entries).
 10. `git push origin main` — VMs clone `alshain/acradle-setup@main`; nothing reaches a guest before this, and only **new** VMs get it.
