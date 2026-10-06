@@ -54,7 +54,7 @@ while [ "$#" -gt 0 ]; do
     --set)     need_val "$@"; SET_DIR="$2"; shift 2 ;;
     --items)   need_val "$@"; ITEMS="$2";   SET_ONLY=1; shift 2 ;;
     --cover)   need_val "$@"; COVER="$2";   SET_ONLY=1; shift 2 ;;
-    --type)    need_val "$@"; TYPES+=(--type "$2"); SET_ONLY=1; shift 2 ;;
+    --type)    need_val "$@"; TYPES+=("--type=$2"); SET_ONLY=1; shift 2 ;;
     --name)    need_val "$@"; NAME="$2";    SET_ONLY=1; shift 2 ;;
     -h|--help) usage ;;
     -*)        die "unknown flag: $1" ;;
@@ -66,7 +66,7 @@ done
 if [ -n "$SET_DIR" ]; then
   [ -z "$FILE" ] || usage "--set takes a directory, not a file as well"
   [ -d "$SET_DIR" ] || reject "--set: not a directory: $SET_DIR"
-  [ -n "$NAME" ] || NAME="$(basename "$(cd "$SET_DIR" && pwd)").zip"
+  [ -n "$NAME" ] || NAME="$(basename -- "$(cd -- "$SET_DIR" && pwd)").zip"
   case "$NAME" in */*|*\\*) usage "--name must be a file name, not a path" ;; esac
   # The server runs its APK parser first and exclusively for an .apk name
   # (chute internal/api/upload.go), so a set named that way is rejected.
@@ -92,10 +92,13 @@ if [ -n "$SET_DIR" ]; then
     || die "--set needs python3 (present on acradle guests); single-file pushes still work"
   SET_TMP="$(mktemp -d)"
   FILE="$SET_TMP/$NAME"
-  build_args=(--out "$FILE")
-  if [ -n "$ITEMS" ]; then build_args+=(--items "$ITEMS"); fi
-  if [ -n "$COVER" ]; then build_args+=(--cover "$COVER"); fi
-  build_args+=("${TYPES[@]}" "$SET_DIR")
+  # --opt=value and "--" before the directory: a value starting with '-'
+  # (a file named -b.png, a TSV or directory named -x) must stay a value,
+  # never be read by argparse as an option.
+  build_args=("--out=$FILE")
+  if [ -n "$ITEMS" ]; then build_args+=("--items=$ITEMS"); fi
+  if [ -n "$COVER" ]; then build_args+=("--cover=$COVER"); fi
+  build_args+=("${TYPES[@]}" -- "$SET_DIR")
   brc=0; python3 "$SCRIPT_DIR/chute-set.py" "${build_args[@]}" || brc=$?
   case "$brc" in
     0) ;;

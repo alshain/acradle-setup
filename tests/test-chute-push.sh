@@ -354,6 +354,17 @@ s12case empty 'a set needs at least one item' --set empty
 s12case blank 'item 0 (a.png): title is required' --set blank --items blank.tsv
 s12case miss "line 2: 'nope.png' is not a file" --set miss --items miss.tsv
 ok "set inputs rejected with exit 3 before any network (101 files, .xyz, empty, blank title, missing row)"
+# Values that look like options (a leading '-') are values: a cover, a TSV
+# and a directory named so must build, and only then fail at the network.
+mkdir -p "$d12/-dash"; png "$d12/-dash/-b.png" "$d12/-dash/c.png"
+printf '%s\t%s\t\n' c.png 'Cee' > "$d12/-dash.tsv"
+rc=0; PUSH_URL="http://127.0.0.1:1" run_push "$d12" "$WORK/s12-dash.out" --stream screenshots \
+  --set -dash --items -dash.tsv --cover -b.png || rc=$?
+[ "$rc" = 1 ] && grep -qF 'chute-set: 2 items' "$WORK/s12-dash.out" && grep -q 'cannot reach' "$WORK/s12-dash.out" \
+  || fail "s12 dash-leading values: rc=$rc $(cat "$WORK/s12-dash.out")"
+[ "$(grep -m1 ' id=' "$WORK/s12-dash.out" | awk '{print $1}')" = "-b.png" ] \
+  || fail "s12 dash-leading --cover is not first: $(cat "$WORK/s12-dash.out")"
+ok "dash-leading --set, --items and --cover are values, not flags"
 # No python3: a PATH holding only what chute-push runs before its python3
 # check (exec wrappers, so this works wherever the real tools live).
 NOPY="$WORK/nopy"; mkdir -p "$NOPY"
@@ -393,8 +404,8 @@ cat > "$STUB/chute-set.py" <<'EOF'
 # harness stub: copies $STUB_ZIP to --out instead of building a set
 import os, shutil, sys
 CONFORMED_TO_CHUTE = "0123456789abcdef0123456789abcdef01234567"
-a = sys.argv[1:]
-shutil.copyfile(os.environ["STUB_ZIP"], a[a.index("--out") + 1])
+out = [a for a in sys.argv[1:] if a.startswith("--out=")][0][len("--out="):]
+shutil.copyfile(os.environ["STUB_ZIP"], out)
 EOF
 python3 -c 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1],"w"); z.writestr("b.txt","no manifest"); z.close()' "$d14/drift.zip"
 rc=0; ( export STUB_ZIP="$d14/drift.zip"; PUSH_BIN="$STUB/chute-push" run_push "$d10" "$WORK/s14d.out" --stream screenshots --set renders ) || rc=$?
