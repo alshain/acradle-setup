@@ -124,6 +124,26 @@ grep -q 'PUT  */v1/streams/{s}/versions' "$SKILL_DIR/reference.md" 2>/dev/null \
   || fail "reference.md lacks the manual upload route"
 ok "SKILL.md gates: body $words/500 words, trigger words, --set, Gallery floor, reference.md"
 
+# ── 0b. plugin version (static) ───────────────────────────────────────────
+# The plugin cache path is version-keyed and `claude plugin list` in a VM is
+# how an agent tells which contract it has, so plugin.json and both
+# marketplace.json versions must agree, and must be past 0.1.x once the
+# skill teaches --set (sets spec D9).
+versions="$(python3 - "$ROOT" <<'PY'
+import json, sys
+root = sys.argv[1]
+p = json.load(open(root + "/plugins/acradle-vm/.claude-plugin/plugin.json", encoding="utf-8"))
+m = json.load(open(root + "/.claude-plugin/marketplace.json", encoding="utf-8"))
+entry = [e for e in m["plugins"] if e["name"] == "acradle-vm"]
+print(p["version"], m["metadata"]["version"], entry[0]["version"] if len(entry) == 1 else "missing")
+PY
+)" || fail "could not read plugin versions"
+read -r v_plugin v_meta v_entry <<<"$versions"
+[ "$v_plugin" = "$v_meta" ] && [ "$v_plugin" = "$v_entry" ] \
+  || fail "plugin versions disagree: plugin.json=$v_plugin marketplace metadata=$v_meta marketplace entry=$v_entry"
+case "$v_plugin" in 0.0.*|0.1.*) fail "plugin version $v_plugin predates --set; bump to 0.2.0 (sets spec D9)" ;; esac
+ok "plugin version $v_plugin in plugin.json and both marketplace.json entries"
+
 # ── server ────────────────────────────────────────────────────────────────
 export CHUTE_DATA_DIR="$WORK/data"
 CHUTE_ADDR="127.0.0.1:$PORT" CHUTE_PUBLIC_URL="$BASE" \

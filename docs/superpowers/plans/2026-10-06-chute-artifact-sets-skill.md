@@ -132,9 +132,9 @@ Checked against `50322ea`; these are the traps, each pinned by a test below.
 **Files:**
 - Modify: `plugins/acradle-vm/.claude-plugin/plugin.json` (`version`), `.claude-plugin/marketplace.json` (`metadata.version` and `plugins[0].version`)
 
-- [ ] **Step 1:** Add a harness (or a tiny `tests/` check) assertion that the three version strings are equal; red-check by bumping only one.
-- [ ] **Step 2:** Bump all three to `0.2.0`; `claude plugin validate .` if available.
-- [ ] **Step 3: Commit** `chore(plugin): acradle-vm 0.2.0 — chute artifact sets`.
+- [x] **Step 1:** Add a harness (or a tiny `tests/` check) assertion that the three version strings are equal; red-check by bumping only one. (Harness scenario 0b, static: the three must agree **and** must not be 0.0.x/0.1.x, since the skill now teaches `--set`. Red at HEAD: "plugin version 0.1.0 predates --set"; red with only the marketplace entry bumped: "plugin versions disagree".)
+- [x] **Step 2:** Bump all three to `0.2.0`; `claude plugin validate .` if available. (Both `claude plugin validate .` and `claude plugin validate plugins/acradle-vm` pass.)
+- [x] **Step 3: Commit** `chore(plugin): acradle-vm 0.2.0 — chute artifact sets`.
 
 **Stop here.** Report to the human: commit list, harness tail, unit tail, the guest 3.10 result, s15 run/skip, and that step 10 (`git push origin main`) awaits their go — with the open question of who owns the 4 unpushed shellcheck commits that would ride along.
 
