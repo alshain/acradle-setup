@@ -37,9 +37,25 @@ jget() { node -e "const j=JSON.parse(require('fs').readFileSync(0,'utf8'));const
 # git config, so `git credential fill` finds no helper and returns nothing —
 # forcing derive_project's string fallback instead of touching github.com.
 AGENT_HOME="$WORK/home"; mkdir -p "$AGENT_HOME"
+
+# chuted's pair limiter (burst 8, then 1 per 10s) is keyed per client IP,
+# taken from the last X-Forwarded-For hop or else the socket address. Every
+# harness request comes from 127.0.0.1, so by s8 the shared bucket is empty
+# and the pair POST gets 429. Real agents each have their own IP; to model
+# that, chute-push runs with a curl wrapper first on PATH that stamps every
+# request with its own X-Forwarded-For (derived from the wrapper's PID). The
+# server and chute-push are unmodified; only the test's network identity is.
+REAL_CURL="$(command -v curl)" || fail "curl not on PATH"
+CURL_SHIM="$WORK/curlshim"; mkdir -p "$CURL_SHIM"
+cat > "$CURL_SHIM/curl" <<EOF
+#!/usr/bin/env bash
+exec "$REAL_CURL" -H "X-Forwarded-For: 10.\$(( (\$\$ >> 16) & 255 )).\$(( (\$\$ >> 8) & 255 )).\$(( \$\$ & 255 ))" "\$@"
+EOF
+chmod +x "$CURL_SHIM/curl"
+
 run_push() {  # run_push <cwd> <outfile> [args...]
   local cwd="$1" out="$2"; shift 2
-  ( cd "$cwd" && HOME="$AGENT_HOME" CHUTE_URL="$BASE" \
+  ( cd "$cwd" && PATH="$CURL_SHIM:$PATH" HOME="$AGENT_HOME" CHUTE_URL="$BASE" \
       GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 \
       bash "$PUSH" "$@" ) > "$out" 2>&1
 }
