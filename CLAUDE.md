@@ -40,6 +40,11 @@ Chute facts that shape everything here:
 - Headless `claude -p`: no human available to answer prompts mid-run.
 - Internet access, but no LAN/host access.
 - Scripts must need only **bash + curl + git** — no `jq` (parse with grep/sed).
+  **One stated exception** (sets spec D1, `docs/superpowers/specs/2026-10-06-chute-artifact-sets-skill-design.md`):
+  `chute-push --set` additionally needs python3 ≥ 3.10, **stdlib only** (zipfile, json),
+  via the skill's `chute-set.py`; acradle provisioning already requires python3.
+  Single-file pushes never need it, and a VM without python3 loses sets with a clear
+  message, never single-file pushes. No other script gets python3 without its own spec decision.
 
 ## Repository layout
 

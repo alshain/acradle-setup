@@ -110,6 +110,9 @@ hardcoded next to `CHUTE_URL`, overridable via `$CHUTE_PRISON_ORG` /
   HEAD`), omitted silently outside a repo. `filename` = file basename.
 * `CHUTE_URL="${CHUTE_URL:-https://chute.vqrs.ch}"`.
 * Dependencies: bash, curl, git only. No `jq`; parse with grep/sed.
+  *Amended 2026-10-06* (sets spec D1, `2026-10-06-chute-artifact-sets-skill-design.md`):
+  `chute-push --set` additionally needs python3 ≥ 3.10 **stdlib only** (zipfile, json),
+  which acradle provisioning already requires. Single-file pushes never need it.
 
 **Token flow.** Token at `~/.config/chute/token` (chute spec convention);
 token presence is the entire client-side state. Pairing is triggered by: no
