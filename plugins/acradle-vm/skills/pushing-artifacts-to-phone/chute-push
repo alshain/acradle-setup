@@ -67,6 +67,23 @@ json_field() {
   printf '%s' "$1" | grep -o "\"$2\":\"[^\"]*\"" | head -n1 | sed 's/^"[^"]*":"//; s/"$//'
 }
 
+# The one owner of the chute:// deep-link format in this language (chute's
+# docs/deep-links.md; the Kotlin side is ChuteLink). Emits finished markdown so
+# the agent relays a line verbatim rather than composing a URL — and so the raw
+# chute:// string is never shown to the user. Nothing else in this script may
+# write a chute:// string.
+#   deep_link version ID   -> [Open](...) · [Install](...)
+#   deep_link approvals    -> [Approve on phone](chute://approvals)
+deep_link() {
+  case "$1" in
+    version)
+      printf '[Open](chute://version/%s) · [Install](chute://version/%s?action=install)' "$2" "$2" ;;
+    approvals)
+      printf '[Approve on phone](chute://approvals)' ;;
+    *) die "deep_link: unknown kind '$1'" ;;
+  esac
+}
+
 # GitHub fork-parent lookup using the credential already in git's store.
 # Prints "owner/name" of the parent, or nothing (rc 1) when unavailable.
 fork_parent() {
@@ -146,7 +163,8 @@ pair() {
   echo "==================================================================="
   echo "  PAIRING CODE: $code   (valid 24h)"
   echo "  Approve on the phone — only tap the card showing THIS code."
-  echo "  AGENT: relay this code to the user in your reply, verbatim."
+  echo "  AGENT: relay this code to the user in your reply, verbatim, together"
+  echo "         with this link: $(deep_link approvals)"
   echo "==================================================================="
   echo ""
 
@@ -178,7 +196,7 @@ pair() {
 # Uploads $FILE. Returns 0 on success, 41 on auth rejection (caller
 # re-pairs once); dies on every other failure.
 upload() {
-  local token qs http branch commit
+  local token qs http branch commit resp vid
   token="$(cat "$TOKEN_FILE")"
   qs="filename=$(urlencode "$(basename "$FILE")")"
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
@@ -192,8 +210,21 @@ upload() {
     "$CHUTE_URL/v1/streams/$(urlencode "$STREAM")/versions?$qs")" \
     || die "upload failed: cannot reach $CHUTE_URL"
   case "$http" in
-    201) echo "chute-push: uploaded '$(basename "$FILE")' to stream '$STREAM': $(cat "$TMP")" ;;
-    200) echo "chute-push: already on the server (idempotent replay): $(cat "$TMP")" ;;
+    201|200)
+      resp="$(cat "$TMP")"
+      vid="$(json_field "$resp" version_id)"
+      if [ "$http" = "200" ]; then
+        echo "chute-push: already on the server (idempotent replay): $resp"
+      else
+        echo "chute-push: uploaded '$(basename "$FILE")' to stream '$STREAM': $resp"
+      fi
+      if [ -n "$vid" ]; then
+        echo ""
+        echo "DEEP LINKS (relay to the user verbatim, as markdown — never the raw URL):"
+        echo "  $(deep_link version "$vid")"
+        echo ""
+      fi
+      ;;
     401) return 41 ;;
     413) die "file exceeds the server's upload cap" ;;
     *)   die "upload failed (HTTP $http): $(cat "$TMP")" ;;

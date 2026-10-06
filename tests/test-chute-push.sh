@@ -109,6 +109,10 @@ grep -q "chute-push: uploaded 'build.bin' to stream 'test-apk'" "$WORK/s3.out" |
 grep -q '^chu_' "$AGENT_HOME/.config/chute/token" || fail "token has unexpected shape"
 [ ! -f "$AGENT_HOME/.config/chute/pending-pairing" ] || fail "pending file not cleaned up"
 ok "fresh pairing + upload (code $C3 relayed in output)"
+grep -qF '[Approve on phone](chute://approvals)' "$WORK/s3.out" || fail "no approvals link in pairing banner: $(cat "$WORK/s3.out")"
+grep -qF '[Open](chute://version/' "$WORK/s3.out" || fail "no Open deep link: $(cat "$WORK/s3.out")"
+grep -qF '[Install](chute://version/' "$WORK/s3.out" || fail "no Install deep link: $(cat "$WORK/s3.out")"
+ok "deep links relayed as markdown (Approve, Open, Install)"
 
 # ── 4. idempotent replay ─────────────────────────────────────────────────
 run_push "$d3" "$WORK/s4.out" --stream test-apk build.bin || fail "replay run failed: $(cat "$WORK/s4.out")"

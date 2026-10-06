@@ -44,6 +44,20 @@ prints a 4-digit code, and waits for phone approval.
 must approve only the phone card showing that exact code. A timed-out wait
 is not a failure: the code stays valid 24 h and a re-run resumes it.
 
+## Relaying deep links
+
+Every successful push prints a `DEEP LINKS` block. **Relay it verbatim, as
+markdown** — the user taps *Open* or *Install* and lands in the app without
+waiting for the notification.
+
+Never show the raw `chute://` URL. The links must render as the words *Open*
+and *Install*; a bare URL in your reply is a defect, not a style choice. Never
+compose one yourself either — copy the line the script printed.
+
+The links only work on a phone with chute installed (0.1.4 or newer), which is
+the same phone the notification would reach, so there is no case where relaying
+them is wrong.
+
 ## Manual API (when the script can't)
 
 Base `$CHUTE_URL` (default `https://chute.vqrs.ch`); token file above,
