@@ -145,12 +145,20 @@ case "$v_plugin" in 0.0.*|0.1.*) fail "plugin version $v_plugin predates --set; 
 ok "plugin version $v_plugin in plugin.json and both marketplace.json entries"
 
 # ── server ────────────────────────────────────────────────────────────────
+# The port is fixed, and chuted logs "bootstrap available" BEFORE it binds,
+# so with another harness (or any chuted) on the port this run would talk to
+# that server instead and fail somewhere unexplained. Refuse a busy port, and
+# count the server as up only once it logs "chuted listening".
+if curl -s --max-time 2 -o /dev/null "$BASE/healthz"; then
+  fail "port $PORT is busy (another harness run or chuted?); stop it and re-run"
+fi
 export CHUTE_DATA_DIR="$WORK/data"
 CHUTE_ADDR="127.0.0.1:$PORT" CHUTE_PUBLIC_URL="$BASE" \
   "$CHUTED_BIN" > "$WORK/chuted.log" 2>&1 &
 SERVER_PID=$!
 
-wait_for_line "$WORK/chuted.log" 'bootstrap available' 15 || fail "chuted did not start: $(tail -3 "$WORK/chuted.log")"
+wait_for_line "$WORK/chuted.log" 'chuted listening' 15 || fail "chuted did not start: $(tail -3 "$WORK/chuted.log")"
+kill -0 "$SERVER_PID" 2>/dev/null || fail "chuted exited after starting: $(tail -3 "$WORK/chuted.log")"
 curl -fsS "$BASE/healthz" >/dev/null || fail "healthz"
 ok "chuted up"
 
