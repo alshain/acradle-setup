@@ -188,6 +188,11 @@ shipped script and keep it clean at default severity —
 shellcheck "$(find ~/.claude/plugins -name chute-push | head -1)"   # expect no output, exit 0
 ```
 
+For 0.2.0 this was done once outside a guest (no running guest had
+shellcheck; installing it would have altered a live user guest): shellcheck
+0.10.0 on the committed `chute-push` at `b02a2b8`, clean, with a seeded
+unquoted `$FILE` as the control (SC2086). Details in the sets spec, Testing.
+
 ## Recording results
 
 Append findings to this file or the specs' §7 sections. The VM-image gate

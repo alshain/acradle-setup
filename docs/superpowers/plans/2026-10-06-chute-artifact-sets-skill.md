@@ -124,7 +124,7 @@ Checked against `50322ea`; these are the traps, each pinned by a test below.
 
 - [x] **Step 1:** §0: install path via the public marketplace (`claude plugin marketplace add alshain/acradle-setup` + `claude plugin install acradle-vm@acradle-setup`); the host-mount route kept, labelled "only for testing an unpushed version".
 - [x] **Step 2:** §3 gains a by-hand set push, marked **human-only**: one real set from a fresh VM to production; tap *Gallery*; notification says "N items"; cover/order as captioned; a `.md` member opens with another app.
-- [x] **Step 3:** §5 (shellcheck spot-check) gains: run shellcheck on the final `chute-push` in a guest and keep it clean at default severity (spec "In-guest shellcheck").
+- [x] **Step 3:** §5 (shellcheck spot-check) gains: run shellcheck on the final `chute-push` in a guest and keep it clean at default severity (spec "In-guest shellcheck"). (The docs edit alone did not run the check; review round 1 caught that. The run itself: shellcheck 0.10.0 on the committed `chute-push` at `b02a2b8`, clean, control SC2086 red — recorded in the spec's Testing section.)
 - [x] **Step 4: Commit** `docs(vm-testing): set push by hand and the public install path`. (Docs only: no red test; the harness is re-run anyway and its tail recorded.)
 
 ### Task 6: version bump 0.1.0 → 0.2.0 (Rollout step 9)

@@ -181,7 +181,7 @@ As built (Rollout step 7): the ~458-word estimate did not hold — with the tabl
 - `wc -w SKILL.md` ≤ 500.
 - Red-check discipline recorded in the plan: break `chute-set.py` three ways (emit `"Title"`, omit the manifest, write a dir entry) and watch s10/s13 go red before restoring.
 
-**In-guest shellcheck**: run once on the final `chute-push` inside a VM (host has no shellcheck) and keep it clean at default severity; host-side lint remains out of scope per shellcheck spec §6.
+**In-guest shellcheck**: run once on the final `chute-push` inside a VM (host has no shellcheck) and keep it clean at default severity; host-side lint remains out of scope per shellcheck spec §6. As run (2026-10-06): no running guest carries shellcheck and installing it would alter a live user guest, so the one-off check used the official shellcheck **0.10.0** Windows release binary (downloaded to a temp directory, not installed) on the **committed blob** of `chute-push` at `b02a2b8` (`git show HEAD:… | shellcheck -`, LF, 0 CR bytes): no output, exit 0. Control on the same binary: the same blob with `$FILE` unquoted in the size check → SC2086, exit 1. shellcheck's analysis does not depend on the host OS; the in-guest run in `docs/vm-testing.md` §5 stays the per-release check.
 
 **By hand** (`docs/vm-testing.md` §3, human-only, marked as such): one real set push from a fresh VM to production; tap *Gallery*; confirm the notification says "N items"; confirm cover/order and that a `.md` member opens with another app.
 
